@@ -1,36 +1,39 @@
 {
   "name": "cosmic-runner",
   "version": "1.0.0",
-  "description": "A space-themed multiplayer endless runner game",
+  "description": "A multiplayer space-themed endless runner game",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "webpack serve --open",
-    "build": "webpack --mode production"
-  },
-  "dependencies": {
-    "three": "^0.146.0",
-    "peerjs": "^1.4.7"
-  },
-  "devDependencies": {
-    "webpack": "^5.74.0",
-    "webpack-cli": "^4.10.0",
-    "webpack-dev-server": "^4.11.1",
-    "html-webpack-plugin": "^5.5.0",
-    "copy-webpack-plugin": "^11.0.0",
-    "style-loader": "^3.3.1",
-    "css-loader": "^6.7.1",
-    "babel-loader": "^8.2.5",
-    "@babel/core": "^7.18.5",
-    "@babel/preset-env": "^7.18.2"
+    "build": "webpack --mode=production",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "game",
     "threejs",
-    "peerjs",
-    "multiplayer",
-    "web-game"
+    "webgl",
+    "multiplayer"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "ISC",
+  "dependencies": {
+    "nipplejs": "^0.10.1",
+    "peerjs": "^1.4.7",
+    "three": "^0.146.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.5",
+    "@babel/preset-env": "^7.20.2",
+    "babel-loader": "^9.1.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.7.2",
+    "html-webpack-plugin": "^5.5.0",
+    "mini-css-extract-plugin": "^2.9.2",
+    "style-loader": "^3.3.1",
+    "terser-webpack-plugin": "^5.3.9",
+    "webpack": "^5.75.0",
+    "webpack-cli": "^5.0.1",
+    "webpack-dev-server": "^4.11.1"
+  }
 }

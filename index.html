@@ -5,6 +5,149 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Cosmic Runner</title>
+    <style>
+        /* Basic styles to ensure proper rendering even if external CSS fails */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000033;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #loading-screen .content {
+            text-align: center;
+        }
+
+        #loading-screen h1 {
+            font-size: 36px;
+            color: #ffffff;
+            text-shadow: 0 0 10px #00aaff, 0 0 20px #00aaff;
+            margin-bottom: 30px;
+        }
+
+        #username-input {
+            padding: 10px;
+            width: 250px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border: 1px solid #00aaff;
+            color: #ffffff;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        #start-button {
+            padding: 12px 24px;
+            background-color: #00aaff;
+            color: #ffffff;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #start-button:hover {
+            background-color: #0088cc;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #00aaff;
+            text-align: center;
+            transition: opacity 0.5s;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #restart-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #00aaff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #mobile-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+
+        .control-button {
+            width: 60px;
+            height: 60px;
+            background-color: rgba(0, 170, 255, 0.3);
+            border: 2px solid rgba(0, 170, 255, 0.7);
+            border-radius: 10px;
+            margin: 0 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            user-select: none;
+        }
+
+        .turn-button {
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+        }
+
+        .powerup-button {
+            position: absolute;
+            right: 20px;
+            bottom: 20px;
+            width: 70px;
+            height: 70px;
+            border-radius: 35px;
+            background-color: rgba(255, 0, 255, 0.3);
+            border: 2px solid rgba(255, 0, 255, 0.7);
+        }
+    </style>
     <link rel="stylesheet" href="style.css">
     <meta name="description" content="A multiplayer space-themed endless runner game">
 </head>
@@ -14,7 +157,7 @@
         <div class="content">
             <h1>COSMIC RUNNER</h1>
             <div class="input-container">
-                <input type="text" id="username-input" placeholder="Enter username (optional)" maxlength="15">
+                <input id="username-input" placeholder="Enter username (optional)" maxlength="15">
             </div>
             <button id="start-button">START GAME</button>
         </div>
@@ -35,11 +178,61 @@
             <div id="final-score"></div>
             <button id="restart-button">PLAY AGAIN</button>
         </div>
+
+        <!-- Mobile Controls with Temple Run style buttons -->
         <div id="mobile-controls" class="hidden">
-            <div id="left-button"></div>
-            <div id="right-button"></div>
-            <div id="jump-button"></div>
-            <div id="slide-button"></div>
+            <div class="control-row">
+                <div id="turn-left-button" class="control-button turn-button">
+                    <span>←</span>
+                </div>
+                <div id="jump-button" class="control-button">
+                    <span>↑</span>
+                </div>
+                <div id="turn-right-button" class="control-button turn-button">
+                    <span>→</span>
+                </div>
+            </div>
+            <div class="control-row">
+                <div id="left-button" class="control-button">
+                    <span>←</span>
+                </div>
+                <div id="slide-button" class="control-button">
+                    <span>↓</span>
+                </div>
+                <div id="right-button" class="control-button">
+                    <span>→</span>
+                </div>
+            </div>
+            <div id="powerup-button" class="control-button powerup-button">
+                <span>⚡</span>
+            </div>
+        </div>
+
+        <!-- Settings button and panel for mobile -->
+        <div id="settings-button" class="hidden">
+            <span>⚙️</span>
+        </div>
+
+        <div id="settings-panel" class="hidden">
+            <h3>Controls</h3>
+            <div class="settings-row">
+                <label for="accelerometer-toggle">Tilt Controls:</label>
+                <input type="checkbox" id="accelerometer-toggle">
+            </div>
+            <div class="settings-row" id="tilt-controls" style="display: none;">
+                <label for="sensitivity-slider">Sensitivity:</label>
+                <input type="range" id="sensitivity-slider" min="0.5" max="5" step="0.5" value="2">
+            </div>
+            <div class="settings-info">
+                <p>Keyboard Controls:</p>
+                <ul>
+                    <li>A/D or ←/→: Move left/right</li>
+                    <li>Q/E: Turn left/right</li>
+                    <li>W or ↑: Jump</li>
+                    <li>S or ↓: Slide</li>
+                    <li>Space: Use power-up</li>
+                </ul>
+            </div>
         </div>
     </div>
 </body>

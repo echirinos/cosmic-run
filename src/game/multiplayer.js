@@ -21,6 +21,8 @@ class MultiplayerManager {
 
     // Leaderboard data
     this.leaderboard = [];
+    this.offlineLeaderboard = this.loadLocalLeaderboard();
+    this.lastLeaderboardUpdate = 0;
 
     // Connection status
     this.connected = false;
@@ -382,32 +384,128 @@ class MultiplayerManager {
   }
 
   updateLeaderboard() {
-    // Create leaderboard data from local and remote players
-    const leaderboardData = [];
+    // Combine remote and local player data
+    let allPlayers = Object.values(this.remotePlayers).slice();
 
     // Add local player
-    leaderboardData.push({
+    allPlayers.push({
       username: this.username,
       peerId: this.peerId,
-      score: 0, // Will be updated by the game
-      crystals: 0,
+      score: this.localScore || 0,
+      crystals: this.localCrystals || 0,
+      isLocal: true,
+      lastUpdate: Date.now(),
     });
 
-    // Add remote players
-    Object.values(this.remotePlayers).forEach((player) => {
-      leaderboardData.push({
-        username: player.username,
-        peerId: player.peerId,
-        score: player.score || 0,
-        crystals: player.crystals || 0,
-      });
-    });
+    // Sort by score (descending)
+    allPlayers.sort((a, b) => b.score - a.score);
 
-    // Sort by score
-    leaderboardData.sort((a, b) => b.score - a.score);
+    // Filter out inactive players (no updates in last 30 seconds)
+    const activeTimeout = Date.now() - 30000;
+    allPlayers = allPlayers.filter(
+      (player) => player.isLocal || player.lastUpdate > activeTimeout
+    );
 
-    this.leaderboard = leaderboardData;
+    // Update leaderboard data
+    this.leaderboard = allPlayers.slice(0, 10); // Top 10 only
+
+    // If offline or very few online players, merge with stored local leaderboard
+    if (!this.isConnected() || this.leaderboard.length < 3) {
+      this.mergeWithOfflineLeaderboard();
+    }
+
+    // Trigger leaderboard update event
     this.trigger("leaderboardUpdate", this.leaderboard);
+  }
+
+  // Load locally stored leaderboard
+  loadLocalLeaderboard() {
+    try {
+      const savedLeaderboard = localStorage.getItem(
+        "cosmic_runner_leaderboard"
+      );
+      if (savedLeaderboard) {
+        return JSON.parse(savedLeaderboard);
+      }
+    } catch (e) {
+      console.error("Failed to load local leaderboard:", e);
+    }
+    return [];
+  }
+
+  // Save score to local leaderboard
+  saveLocalScore(username, score, distance) {
+    try {
+      let leaderboard = this.loadLocalLeaderboard();
+
+      // Add new score
+      leaderboard.push({
+        username,
+        score,
+        distance,
+        timestamp: Date.now(),
+      });
+
+      // Sort by score (descending)
+      leaderboard.sort((a, b) => b.score - a.score);
+
+      // Keep only top 10 scores
+      leaderboard = leaderboard.slice(0, 10);
+
+      // Save back to storage
+      localStorage.setItem(
+        "cosmic_runner_leaderboard",
+        JSON.stringify(leaderboard)
+      );
+
+      // Update our cached copy
+      this.offlineLeaderboard = leaderboard;
+
+      // Update displayed leaderboard if needed
+      if (!this.isConnected()) {
+        this.updateLeaderboard();
+      }
+    } catch (e) {
+      console.error("Failed to save local score:", e);
+    }
+  }
+
+  // Merge online and offline leaderboards
+  mergeWithOfflineLeaderboard() {
+    // Start with current online players
+    let mergedLeaderboard = this.leaderboard.slice();
+
+    // Add offline records that aren't already in the leaderboard
+    this.offlineLeaderboard.forEach((offlineEntry) => {
+      // Don't add duplicate entries for the same user
+      const existingEntryIndex = mergedLeaderboard.findIndex(
+        (entry) => entry.username === offlineEntry.username
+      );
+
+      if (existingEntryIndex === -1) {
+        // Convert offline entry format to match online format
+        mergedLeaderboard.push({
+          username: offlineEntry.username,
+          score: offlineEntry.score,
+          crystals: 0, // We don't store this in offline leaderboard
+          isOfflineEntry: true,
+          timestamp: offlineEntry.timestamp,
+        });
+      } else if (
+        offlineEntry.score > mergedLeaderboard[existingEntryIndex].score
+      ) {
+        // If offline score is better, update the existing entry
+        mergedLeaderboard[existingEntryIndex].score = offlineEntry.score;
+        mergedLeaderboard[existingEntryIndex].timestamp =
+          offlineEntry.timestamp;
+      }
+    });
+
+    // Resort by score
+    mergedLeaderboard.sort((a, b) => b.score - a.score);
+
+    // Keep top 10
+    this.leaderboard = mergedLeaderboard.slice(0, 10);
   }
 
   disconnect() {
@@ -467,6 +565,63 @@ class MultiplayerManager {
     if (this.eventListeners[event]) {
       this.eventListeners[event].forEach((callback) => callback(...args));
     }
+  }
+
+  // New update method that takes player object, score and crystals
+  update(player, score, crystals) {
+    const now = Date.now();
+
+    // Rate limit updates to reduce network traffic
+    if (now - this.lastUpdateTime < this.updateInterval) {
+      return;
+    }
+
+    this.lastUpdateTime = now;
+
+    // If connected to multiplayer, send position updates
+    if (this.isConnected()) {
+      this.updatePlayerPosition(
+        player.getPosition(),
+        player.getRotation(),
+        player.getState(),
+        score,
+        crystals
+      );
+    }
+
+    // Update local leaderboard regularly
+    if (now - this.lastLeaderboardUpdate > 5000) {
+      // Every 5 seconds
+      this.lastLeaderboardUpdate = now;
+      this.updateLeaderboard();
+    }
+  }
+
+  formatLeaderboardDate(timestamp) {
+    if (!timestamp) return "";
+
+    const date = new Date(timestamp);
+    const now = new Date();
+
+    // If today, just show time
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    // If this year, show month and day
+    if (date.getFullYear() === now.getFullYear()) {
+      return date.toLocaleDateString([], { month: "short", day: "numeric" });
+    }
+
+    // Otherwise show full date
+    return date.toLocaleDateString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   }
 }
 
