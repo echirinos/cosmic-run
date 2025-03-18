@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Cosmic Runner</title>
+    <!-- Styles will be injected by webpack -->
     <style>
         /* Basic styles to ensure proper rendering even if external CSS fails */
         body {
@@ -67,6 +68,22 @@
             background-color: #0088cc;
         }
 
+        #tutorial-button {
+            padding: 12px 24px;
+            background-color: #55cc77;
+            color: #ffffff;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            margin-top: 10px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #tutorial-button:hover {
+            background-color: #44aa66;
+        }
+
         #game-container {
             position: relative;
             width: 100vw;
@@ -87,7 +104,7 @@
         }
 
         .hidden {
-            display: none;
+            display: none !important;
         }
 
         #restart-button {
@@ -147,8 +164,142 @@
             background-color: rgba(255, 0, 255, 0.3);
             border: 2px solid rgba(255, 0, 255, 0.7);
         }
+
+        /* Tutorial overlay */
+        #tutorial-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 10, 30, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        #tutorial-overlay h2 {
+            color: #00aaff;
+            text-shadow: 0 0 10px rgba(0, 170, 255, 0.5);
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+
+        .tutorial-section {
+            background-color: rgba(0, 0, 0, 0.5);
+            border: 1px solid #00aaff;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            width: 90%;
+            max-width: 600px;
+        }
+
+        .tutorial-section h3 {
+            color: #00ffcc;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .obstacle-info {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 15px;
+        }
+
+        .obstacle-info:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .obstacle-icon {
+            width: 60px;
+            height: 60px;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 15px;
+            font-size: 30px;
+        }
+
+        .deadly {
+            background-color: rgba(255, 0, 0, 0.3);
+            border: 2px solid rgba(255, 0, 0, 0.5);
+        }
+
+        .non-deadly {
+            background-color: rgba(0, 200, 255, 0.3);
+            border: 2px solid rgba(0, 200, 255, 0.5);
+        }
+
+        .crystal {
+            background-color: rgba(0, 255, 255, 0.3);
+            border: 2px solid rgba(0, 255, 255, 0.5);
+        }
+
+        .powerup {
+            background-color: rgba(255, 0, 255, 0.3);
+            border: 2px solid rgba(255, 0, 255, 0.5);
+        }
+
+        .obstacle-detail {
+            flex: 1;
+        }
+
+        .obstacle-detail h4 {
+            margin-top: 0;
+            margin-bottom: 5px;
+            color: #ffffff;
+        }
+
+        .deadly-text {
+            color: #ff5555;
+            font-weight: bold;
+        }
+
+        .safe-text {
+            color: #55ffaa;
+            font-weight: bold;
+        }
+
+        #close-tutorial {
+            padding: 10px 20px;
+            background-color: #00aaff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+
+        #help-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(0, 170, 255, 0.3);
+            border: 2px solid rgba(0, 170, 255, 0.7);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 100;
+        }
     </style>
-    <link rel="stylesheet" href="style.css">
     <meta name="description" content="A multiplayer space-themed endless runner game">
 </head>
 
@@ -160,6 +311,7 @@
                 <input id="username-input" placeholder="Enter username (optional)" maxlength="15">
             </div>
             <button id="start-button">START GAME</button>
+            <button id="tutorial-button">HOW TO PLAY</button>
         </div>
     </div>
 
@@ -234,7 +386,127 @@
                 </ul>
             </div>
         </div>
+
+        <!-- Help button during gameplay -->
+        <div id="help-button" class="hidden">?</div>
     </div>
+
+    <!-- Tutorial Overlay -->
+    <div id="tutorial-overlay" class="hidden">
+        <h2>HOW TO PLAY COSMIC RUNNER</h2>
+
+        <div class="tutorial-section">
+            <h3>Obstacles - What To Avoid</h3>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon deadly">🔴</div>
+                <div class="obstacle-detail">
+                    <h4>Red Asteroids</h4>
+                    <p><span class="deadly-text">DEADLY!</span> These red, spiky asteroids will reduce your health if
+                        hit. They have red warning lights and glowing rings.</p>
+                </div>
+            </div>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon deadly">⚡</div>
+                <div class="obstacle-detail">
+                    <h4>Energy Barriers</h4>
+                    <p><span class="deadly-text">DEADLY!</span> Pink/purple energy fields that will instantly damage
+                        you. They have glowing particles and danger symbols.</p>
+                </div>
+            </div>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon non-deadly">⬜</div>
+                <div class="obstacle-detail">
+                    <h4>Space Debris</h4>
+                    <p><span class="safe-text">NON-DEADLY</span> - Blue/gray metal objects with blue safety lights. You
+                        can jump over these without taking damage.</p>
+                </div>
+            </div>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon non-deadly">🟢</div>
+                <div class="obstacle-detail">
+                    <h4>Alien Totems</h4>
+                    <p><span class="safe-text">NON-DEADLY</span> - Green/teal statues with glowing symbols. They slow
+                        you down briefly but won't cause damage.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="tutorial-section">
+            <h3>Collectibles</h3>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon crystal">💎</div>
+                <div class="obstacle-detail">
+                    <h4>Crystals</h4>
+                    <p>Bright turquoise crystals that add to your score. Collect as many as possible!</p>
+                </div>
+            </div>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon powerup">🛡️</div>
+                <div class="obstacle-detail">
+                    <h4>Shield Powerup</h4>
+                    <p>Blue shield that protects you from one hit. A blue ring will appear around you when active.</p>
+                </div>
+            </div>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon powerup">🧲</div>
+                <div class="obstacle-detail">
+                    <h4>Crystal Magnet</h4>
+                    <p>Purple powerup that attracts nearby crystals to you automatically.</p>
+                </div>
+            </div>
+
+            <div class="obstacle-info">
+                <div class="obstacle-icon powerup">⚡</div>
+                <div class="obstacle-detail">
+                    <h4>Speed Boost</h4>
+                    <p>Orange powerup that increases your speed temporarily for higher scores.</p>
+                </div>
+            </div>
+        </div>
+
+        <button id="close-tutorial">GOT IT!</button>
+    </div>
+
+    <script>
+        // Tutorial and game start functionality
+        document.addEventListener('DOMContentLoaded', function () {
+            const tutorialButton = document.getElementById('tutorial-button');
+            const tutorialOverlay = document.getElementById('tutorial-overlay');
+            const closeTutorial = document.getElementById('close-tutorial');
+            const helpButton = document.getElementById('help-button');
+            const startButton = document.getElementById('start-button');
+
+            // Show tutorial when How to Play button is clicked
+            tutorialButton.addEventListener('click', function () {
+                tutorialOverlay.classList.remove('hidden');
+                tutorialOverlay.style.display = 'flex';
+            });
+
+            // Show tutorial from help button during gameplay
+            if (helpButton) {
+                helpButton.addEventListener('click', function () {
+                    tutorialOverlay.classList.remove('hidden');
+                    tutorialOverlay.style.display = 'flex';
+                });
+            }
+
+            // Close tutorial and start game when GOT IT is clicked
+            closeTutorial.addEventListener('click', function () {
+                tutorialOverlay.classList.add('hidden');
+                tutorialOverlay.style.display = 'none';
+
+                // Start the game directly
+                startButton.click();
+            });
+        });
+    </script>
 </body>
 
 </html>

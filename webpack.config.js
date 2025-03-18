@@ -13,6 +13,9 @@ module.exports = {
     filename: "[name].[contenthash].js",
     clean: true,
   },
+  resolve: {
+    extensions: [".js", ".json"],
+  },
   devServer: {
     static: {
       directory: path.join(__dirname, "dist"),
@@ -32,7 +35,18 @@ module.exports = {
         use: {
           loader: "babel-loader",
           options: {
-            presets: ["@babel/preset-env"],
+            presets: [
+              [
+                "@babel/preset-env",
+                {
+                  targets: {
+                    browsers: [">0.25%", "not ie 11", "not op_mini all"],
+                  },
+                  modules: false,
+                },
+              ],
+            ],
+            sourceType: "module",
           },
         },
       },
