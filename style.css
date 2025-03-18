@@ -1,0 +1,190 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Arial', sans-serif;
+}
+
+body {
+    overflow: hidden;
+    background-color: #000;
+    color: #fff;
+}
+
+#loading-screen {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to bottom, #000428, #004e92);
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: opacity 0.5s ease;
+}
+
+#loading-screen .content {
+    text-align: center;
+    padding: 20px;
+    border-radius: 10px;
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#loading-screen h1 {
+    font-size: 3rem;
+    margin-bottom: 30px;
+    text-shadow: 0 0 10px rgba(0, 200, 255, 0.8);
+    letter-spacing: 3px;
+}
+
+.input-container {
+    margin-bottom: 20px;
+}
+
+#username-input {
+    background-color: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 10px 15px;
+    color: white;
+    border-radius: 20px;
+    width: 250px;
+    text-align: center;
+    outline: none;
+    font-size: 1rem;
+}
+
+#username-input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+#start-button, #restart-button {
+    background: linear-gradient(45deg, #00c6ff, #0072ff);
+    border: none;
+    padding: 12px 30px;
+    color: white;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: bold;
+    transition: all 0.3s ease;
+    letter-spacing: 1px;
+}
+
+#start-button:hover, #restart-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px rgba(0, 200, 255, 0.8);
+}
+
+#game-container {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+#hud {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 10;
+    font-size: 1.2rem;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+#score, #crystals {
+    margin-bottom: 10px;
+}
+
+#multiplayer-status {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+#leaderboard {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 10;
+    min-width: 150px;
+}
+
+#leaderboard h3 {
+    text-align: center;
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+    color: #00c6ff;
+}
+
+#leaderboard-list {
+    list-style-type: none;
+}
+
+#leaderboard-list li {
+    font-size: 0.8rem;
+    margin-bottom: 3px;
+}
+
+#game-over {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    padding: 30px;
+    border-radius: 10px;
+    text-align: center;
+    z-index: 20;
+}
+
+#game-over h2 {
+    margin-bottom: 20px;
+    color: #ff4040;
+    font-size: 2rem;
+}
+
+#final-score {
+    margin-bottom: 20px;
+    font-size: 1.2rem;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#mobile-controls {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    display: flex;
+    justify-content: space-around;
+    z-index: 10;
+}
+
+#mobile-controls div {
+    width: 70px;
+    height: 70px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Media queries for responsive design */
+@media (max-width: 768px) {
+    #leaderboard {
+        display: none;
+    }
+
+    #loading-screen h1 {
+        font-size: 2rem;
+    }
+
+    #username-input {
+        width: 200px;
+    }
+}

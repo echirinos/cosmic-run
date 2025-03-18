@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cosmic Runner</title>
+    <link rel="stylesheet" href="style.css">
+    <meta name="description" content="A multiplayer space-themed endless runner game">
+</head>
+
+<body>
+    <div id="loading-screen">
+        <div class="content">
+            <h1>COSMIC RUNNER</h1>
+            <div class="input-container">
+                <input type="text" id="username-input" placeholder="Enter username (optional)" maxlength="15">
+            </div>
+            <button id="start-button">START GAME</button>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div id="hud">
+            <div id="score">SCORE: <span id="score-value">0</span></div>
+            <div id="crystals">CRYSTALS: <span id="crystal-value">0</span></div>
+            <div id="multiplayer-status"></div>
+        </div>
+        <div id="leaderboard">
+            <h3>TOP RUNNERS</h3>
+            <ul id="leaderboard-list"></ul>
+        </div>
+        <div id="game-over" class="hidden">
+            <h2>GAME OVER</h2>
+            <div id="final-score"></div>
+            <button id="restart-button">PLAY AGAIN</button>
+        </div>
+        <div id="mobile-controls" class="hidden">
+            <div id="left-button"></div>
+            <div id="right-button"></div>
+            <div id="jump-button"></div>
+            <div id="slide-button"></div>
+        </div>
+    </div>
+</body>
+
+</html>
