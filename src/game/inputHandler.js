@@ -27,11 +27,11 @@ class InputHandler {
         switch (e.code) {
           case "ArrowLeft":
           case "KeyA":
-            this.game.moveRight(); // Swapped for fix
+            this.game.moveLeft(); // Fixed direction
             break;
           case "ArrowRight":
           case "KeyD":
-            this.game.moveLeft(); // Swapped for fix
+            this.game.moveRight(); // Fixed direction
             break;
           case "ArrowUp":
           case "KeyW":
@@ -99,11 +99,11 @@ class InputHandler {
         const tapX = touchEndX;
 
         if (tapX < screenWidth / 3) {
-          // Left third of screen - move right (swapped)
-          this.game.moveRight();
-        } else if (tapX > (screenWidth * 2) / 3) {
-          // Right third of screen - move left (swapped)
+          // Left third of screen - move left
           this.game.moveLeft();
+        } else if (tapX > (screenWidth * 2) / 3) {
+          // Right third of screen - move right
+          this.game.moveRight();
         } else {
           // Middle third of screen - jump
           this.game.jump();
@@ -118,11 +118,11 @@ class InputHandler {
         if (Math.abs(deltaX) > Math.abs(deltaY)) {
           // Horizontal swipe
           if (deltaX > 0) {
-            // Right swipe - move left (swapped)
-            this.game.moveLeft();
-          } else {
-            // Left swipe - move right (swapped)
+            // Right swipe - move right
             this.game.moveRight();
+          } else {
+            // Left swipe - move left
+            this.game.moveLeft();
           }
         } else {
           // Vertical swipe

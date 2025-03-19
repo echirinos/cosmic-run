@@ -5,8 +5,8 @@ class Player {
     this.scene = scene;
     this.mesh = null;
     this.speed = 0.15;
-    this.jumpForce = 0.2;
-    this.gravity = 0.01;
+    this.jumpForce = 0.3; // Increased for better jump feel
+    this.gravity = 0.015; // Increased for more responsive physics
     this.position = { x: 0, y: 0, z: 0 };
     this.velocity = { x: 0, y: 0, z: 0 };
     this.targetLane = 0; // -1: left, 0: center, 1: right
@@ -19,14 +19,44 @@ class Player {
     this.shieldActive = false;
     this.health = 3; // Player starts with 3 health points
     this.activePowerup = null; // Currently active powerup
+    this.canBeHit = true; // Invulnerability flag
+    this.invulnerabilityTime = 1000; // 1 second of invulnerability after hit
 
-    // Animation states
+    // Collision detection variables
+    this.hitbox = {
+      standing: { width: 0.8, height: 1.8, depth: 0.8 },
+      sliding: { width: 0.8, height: 0.9, depth: 1.2 },
+    };
+
+    // Visual hitbox for debugging
+    this.hitboxMesh = null;
+    this.debugMode = false;
+
+    // Animation states with timing
     this.animationState = {
       running: true,
       jumping: false,
       sliding: false,
       stumbling: false,
       recovering: false,
+      current: "running",
+      transitionTime: 0,
+      transitionDuration: 0.3, // Seconds for smooth transitions
+    };
+
+    // Animation timing variables
+    this.runCycle = 0;
+    this.jumpCycle = 0;
+    this.slideCycle = 0;
+    this.deathCycle = 0;
+
+    // Limb references for animations
+    this.limbs = {
+      leftArm: null,
+      rightArm: null,
+      leftLeg: null,
+      rightLeg: null,
+      torso: null,
     };
 
     // Create astronaut mesh
@@ -36,6 +66,11 @@ class Player {
     if (this.mesh) {
       this.mesh.position.set(this.position.x, this.position.y, this.position.z);
       this.scene.add(this.mesh);
+
+      // Create debug hitbox if in debug mode
+      if (this.debugMode) {
+        this.createDebugHitbox();
+      }
     } else {
       console.error("Failed to create player mesh");
     }
@@ -82,7 +117,6 @@ class Player {
     helmet.position.y = 1.7;
     helmet.castShadow = true;
     astronaut.add(helmet);
-    this.helmet = helmet;
 
     // Visor (with more realistic shape and reflective properties)
     const visorGeometry = new THREE.SphereGeometry(
@@ -169,105 +203,45 @@ class Player {
 
   // Add limbs with better articulation
   addLimbs(astronaut) {
-    // Arms
-    const armMaterial = new THREE.MeshStandardMaterial({
+    // Body components for animations
+    const limbMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      roughness: 0.4,
-      metalness: 0.6,
-      emissive: 0x222222,
-      emissiveIntensity: 0.1,
+      roughness: 0.5,
+      metalness: 0.7,
     });
 
-    // Left arm
-    this.leftArm = new THREE.Group();
+    // Arms
+    const armGeometry = new THREE.CapsuleGeometry(0.1, 0.5, 8, 8);
 
-    const leftUpperArmGeometry = new THREE.CapsuleGeometry(0.15, 0.5, 8, 8);
-    const leftUpperArm = new THREE.Mesh(leftUpperArmGeometry, armMaterial);
-    leftUpperArm.position.y = -0.25;
-    leftUpperArm.castShadow = true;
-    this.leftArm.add(leftUpperArm);
+    const leftArm = new THREE.Mesh(armGeometry, limbMaterial);
+    leftArm.position.set(0.5, 1.2, 0);
+    leftArm.rotation.z = -Math.PI / 8;
+    astronaut.add(leftArm);
+    this.limbs.leftArm = leftArm;
 
-    const leftLowerArmGeometry = new THREE.CapsuleGeometry(0.12, 0.5, 8, 8);
-    const leftLowerArm = new THREE.Mesh(leftLowerArmGeometry, armMaterial);
-    leftLowerArm.position.y = -0.8;
-    leftLowerArm.castShadow = true;
-    this.leftArm.add(leftLowerArm);
-
-    // Position the whole arm
-    this.leftArm.position.set(-0.5, 1.3, 0);
-    astronaut.add(this.leftArm);
-
-    // Right arm (mirror of left)
-    this.rightArm = new THREE.Group();
-
-    const rightUpperArmGeometry = new THREE.CapsuleGeometry(0.15, 0.5, 8, 8);
-    const rightUpperArm = new THREE.Mesh(rightUpperArmGeometry, armMaterial);
-    rightUpperArm.position.y = -0.25;
-    rightUpperArm.castShadow = true;
-    this.rightArm.add(rightUpperArm);
-
-    const rightLowerArmGeometry = new THREE.CapsuleGeometry(0.12, 0.5, 8, 8);
-    const rightLowerArm = new THREE.Mesh(rightLowerArmGeometry, armMaterial);
-    rightLowerArm.position.y = -0.8;
-    rightLowerArm.castShadow = true;
-    this.rightArm.add(rightLowerArm);
-
-    // Position the whole arm
-    this.rightArm.position.set(0.5, 1.3, 0);
-    astronaut.add(this.rightArm);
+    const rightArm = new THREE.Mesh(armGeometry, limbMaterial);
+    rightArm.position.set(-0.5, 1.2, 0);
+    rightArm.rotation.z = Math.PI / 8;
+    astronaut.add(rightArm);
+    this.limbs.rightArm = rightArm;
 
     // Legs
-    // Left leg
-    this.leftLeg = new THREE.Group();
+    const legGeometry = new THREE.CapsuleGeometry(0.12, 0.6, 8, 8);
 
-    const leftUpperLegGeometry = new THREE.CapsuleGeometry(0.18, 0.6, 8, 8);
-    const leftUpperLeg = new THREE.Mesh(leftUpperLegGeometry, armMaterial);
-    leftUpperLeg.position.y = -0.3;
-    leftUpperLeg.castShadow = true;
-    this.leftLeg.add(leftUpperLeg);
+    const leftLeg = new THREE.Mesh(legGeometry, limbMaterial);
+    leftLeg.position.set(0.2, 0.3, 0);
+    astronaut.add(leftLeg);
+    this.limbs.leftLeg = leftLeg;
 
-    const leftLowerLegGeometry = new THREE.CapsuleGeometry(0.15, 0.6, 8, 8);
-    const leftLowerLeg = new THREE.Mesh(leftLowerLegGeometry, armMaterial);
-    leftLowerLeg.position.y = -0.9;
-    leftLowerLeg.castShadow = true;
-    this.leftLeg.add(leftLowerLeg);
+    const rightLeg = new THREE.Mesh(legGeometry, limbMaterial);
+    rightLeg.position.set(-0.2, 0.3, 0);
+    astronaut.add(rightLeg);
+    this.limbs.rightLeg = rightLeg;
 
-    // Left foot
-    const leftFootGeometry = new THREE.BoxGeometry(0.2, 0.1, 0.3);
-    const leftFoot = new THREE.Mesh(leftFootGeometry, armMaterial);
-    leftFoot.position.set(0, -1.3, 0.05);
-    leftFoot.castShadow = true;
-    this.leftLeg.add(leftFoot);
+    // Store reference to torso/body
+    this.limbs.torso = this.body;
 
-    // Position the whole leg
-    this.leftLeg.position.set(-0.2, 0.3, 0);
-    astronaut.add(this.leftLeg);
-
-    // Right leg (mirror of left)
-    this.rightLeg = new THREE.Group();
-
-    const rightUpperLegGeometry = new THREE.CapsuleGeometry(0.18, 0.6, 8, 8);
-    const rightUpperLeg = new THREE.Mesh(rightUpperLegGeometry, armMaterial);
-    rightUpperLeg.position.y = -0.3;
-    rightUpperLeg.castShadow = true;
-    this.rightLeg.add(rightUpperLeg);
-
-    const rightLowerLegGeometry = new THREE.CapsuleGeometry(0.15, 0.6, 8, 8);
-    const rightLowerLeg = new THREE.Mesh(rightLowerLegGeometry, armMaterial);
-    rightLowerLeg.position.y = -0.9;
-    rightLowerLeg.castShadow = true;
-    this.rightLeg.add(rightLowerLeg);
-
-    // Right foot
-    const rightFootGeometry = new THREE.BoxGeometry(0.2, 0.1, 0.3);
-    const rightFoot = new THREE.Mesh(rightFootGeometry, armMaterial);
-    rightFoot.position.set(0, -1.3, 0.05);
-    rightFoot.castShadow = true;
-    this.rightLeg.add(rightFoot);
-
-    // Position the whole leg
-    this.rightLeg.position.set(0.2, 0.3, 0);
-    astronaut.add(this.rightLeg);
+    return astronaut;
   }
 
   // Add light effects to the astronaut
@@ -493,634 +467,614 @@ class Player {
   }
 
   jump() {
-    if (
-      !this.isJumping &&
-      !this.isDead &&
-      !this.isSliding &&
-      !this.animationState.stumbling
-    ) {
-      console.log("Player jumping!");
-      this.isJumping = true;
+    if (this.isJumping || this.isDead) return;
 
-      // Increased jump force for more satisfying jumps
-      this.velocity.y = this.jumpForce * 1.2;
+    this.isJumping = true;
+    this.velocity.y = this.jumpForce;
 
-      this.animationState.jumping = true;
-      this.isRunning = false;
+    // Transition to jumping animation state
+    this.animationState.current = "jumping";
+    this.animationState.running = false;
+    this.animationState.jumping = true;
+    this.animationState.sliding = false;
+    this.animationState.transitionTime = 0;
 
-      // Play jump sound if available
-      if (window.sound && window.sound.jump) {
-        window.sound.jump.play();
-      }
+    // Start jump animation
+    this.playJumpAnimation();
 
-      this.playJumpAnimation();
-    }
+    // Play jump sound effect if we had audio
+    // this.playSound('jump');
   }
 
   slide() {
-    if (
-      !this.isSliding &&
-      !this.isDead &&
-      !this.isJumping &&
-      !this.animationState.stumbling
-    ) {
-      this.isSliding = true;
-      this.animationState.sliding = true;
-      this.isRunning = false;
-      this.playSlideAnimation();
+    if (this.isSliding || this.isDead) return;
 
-      // Auto recover from slide after a delay
-      setTimeout(() => {
-        if (this.isSliding) {
-          this.isSliding = false;
-          this.animationState.sliding = false;
-          this.isRunning = true;
-        }
-      }, 800);
-    }
+    this.isSliding = true;
+
+    // Transition to sliding animation state
+    this.animationState.current = "sliding";
+    this.animationState.running = false;
+    this.animationState.jumping = false;
+    this.animationState.sliding = true;
+    this.animationState.transitionTime = 0;
+
+    // Start slide animation
+    this.playSlideAnimation();
+
+    // Play slide sound effect if we had audio
+    // this.playSound('slide');
+
+    // Set a timeout to end sliding
+    setTimeout(() => {
+      if (this.isDead) return;
+
+      this.isSliding = false;
+
+      // Transition back to running state
+      this.animationState.current = "running";
+      this.animationState.running = true;
+      this.animationState.sliding = false;
+      this.animationState.transitionTime = 0;
+
+      // Resume running animation
+      this.playRunAnimation();
+    }, 1000); // Slide duration: 1 second
   }
 
   hit() {
-    if (this.shieldActive) {
-      // Shield absorbs the hit
-      this.deactivateShield();
+    if (this.shieldActive || !this.canBeHit || this.isDead) return false;
+
+    // Player takes damage
+    this.health -= 1;
+
+    // Flash the player to indicate damage
+    this.flashDamage();
+
+    // Set invulnerability for a short time
+    this.canBeHit = false;
+    setTimeout(() => {
+      this.canBeHit = true;
+    }, this.invulnerabilityTime);
+
+    if (this.health <= 0) {
+      // Player dies
+      this.die();
+      return true;
+    } else {
+      // Player stumbles
+      this.playStumbleAnimation();
       return false;
     }
-
-    if (!this.isDead && !this.animationState.stumbling) {
-      console.log("Player hit! Health:", this.health);
-      this.health--;
-
-      this.animationState.stumbling = true;
-      this.isRunning = false;
-
-      this.playStumbleAnimation();
-
-      // Slow down temporarily
-      const originalSpeed = this.speed;
-      this.speed *= 0.5;
-
-      // Recover after delay
-      setTimeout(() => {
-        if (!this.isDead) {
-          this.animationState.stumbling = false;
-          this.animationState.recovering = true;
-
-          // Restore speed
-          setTimeout(() => {
-            this.speed = originalSpeed;
-            this.animationState.recovering = false;
-            this.isRunning = true;
-            this.playRunAnimation();
-          }, 500);
-        }
-      }, 1000);
-
-      return true;
-    }
-    return false;
   }
 
-  activateShield() {
-    this.shieldActive = true;
-    this.shield.visible = true;
-    this.shieldPattern.visible = true;
-    this.shieldTimer = Date.now();
+  flashDamage() {
+    if (!this.mesh) return;
 
-    // Add shield activation effect
-    const createShieldActivation = () => {
-      // Create expanding ring effect
-      const ringGeometry = new THREE.RingGeometry(0.1, 0.2, 32);
-      const ringMaterial = new THREE.MeshBasicMaterial({
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.8,
-        side: THREE.DoubleSide,
-      });
+    // Flash red to indicate damage
+    const originalMaterials = [];
+    this.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        originalMaterials.push({
+          mesh: child,
+          material: child.material.clone(),
+        });
 
-      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-      ring.position.y = 0.8;
-      ring.rotation.x = Math.PI / 2;
-      this.mesh.add(ring);
-
-      // Animation
-      let scale = 1;
-      const animateRing = () => {
-        scale += 0.2;
-        ring.scale.set(scale, scale, scale);
-        ringMaterial.opacity -= 0.04;
-
-        if (ringMaterial.opacity > 0) {
-          requestAnimationFrame(animateRing);
-        } else {
-          this.mesh.remove(ring);
-          ringGeometry.dispose();
-          ringMaterial.dispose();
-        }
-      };
-
-      animateRing();
-    };
-
-    createShieldActivation();
-  }
-
-  deactivateShield() {
-    this.shieldActive = false;
-    this.shield.visible = false;
-    this.shieldPattern.visible = false;
-
-    // Create shield deactivation effect
-    const createDeactivationEffect = () => {
-      // Particles flying outward
-      const particleCount = 20;
-      const particleGeometry = new THREE.BufferGeometry();
-      const particlePositions = new Float32Array(particleCount * 3);
-      const particleSizes = new Float32Array(particleCount);
-
-      // Initialize at shield position
-      for (let i = 0; i < particleCount; i++) {
-        const i3 = i * 3;
-        const phi = Math.random() * Math.PI * 2;
-        const theta = Math.random() * Math.PI;
-
-        particlePositions[i3] = Math.sin(theta) * Math.cos(phi) * 1.2;
-        particlePositions[i3 + 1] = Math.sin(theta) * Math.sin(phi) * 1.2 + 0.8;
-        particlePositions[i3 + 2] = Math.cos(theta) * 1.2;
-
-        particleSizes[i] = 0.1 + Math.random() * 0.1;
+        // Create red material
+        const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        child.material = flashMaterial;
       }
+    });
 
-      particleGeometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(particlePositions, 3)
-      );
-      particleGeometry.setAttribute(
-        "size",
-        new THREE.BufferAttribute(particleSizes, 1)
-      );
-
-      const particleMaterial = new THREE.PointsMaterial({
-        color: 0x00aaff,
-        size: 0.2,
-        transparent: true,
-        opacity: 0.8,
-        blending: THREE.AdditiveBlending,
+    // Restore original materials after a short time
+    setTimeout(() => {
+      originalMaterials.forEach((item) => {
+        item.mesh.material = item.material;
       });
-
-      const particles = new THREE.Points(particleGeometry, particleMaterial);
-      this.mesh.add(particles);
-
-      // Animation velocities
-      const velocities = [];
-      for (let i = 0; i < particleCount; i++) {
-        const i3 = i * 3;
-        const pos = new THREE.Vector3(
-          particlePositions[i3],
-          particlePositions[i3 + 1],
-          particlePositions[i3 + 2]
-        );
-        const vel = pos.clone().normalize().multiplyScalar(0.1);
-        velocities.push(vel);
-      }
-
-      // Animation
-      const animateParticles = () => {
-        const positions = particleGeometry.attributes.position.array;
-
-        for (let i = 0; i < particleCount; i++) {
-          const i3 = i * 3;
-          positions[i3] += velocities[i].x;
-          positions[i3 + 1] += velocities[i].y;
-          positions[i3 + 2] += velocities[i].z;
-        }
-
-        particleGeometry.attributes.position.needsUpdate = true;
-        particleMaterial.opacity -= 0.02;
-
-        if (particleMaterial.opacity > 0) {
-          requestAnimationFrame(animateParticles);
-        } else {
-          this.mesh.remove(particles);
-          particleGeometry.dispose();
-          particleMaterial.dispose();
-        }
-      };
-
-      animateParticles();
-    };
-
-    createDeactivationEffect();
+    }, 200);
   }
 
   die() {
-    if (!this.isDead) {
-      this.isDead = true;
-      this.isRunning = false;
-      this.animationState.jumping = false;
-      this.animationState.sliding = false;
-      this.animationState.stumbling = false;
+    if (this.isDead) return;
 
-      this.playDeathAnimation();
-    }
+    this.isDead = true;
+    this.velocity.y = 0.2; // Small upward bounce on death
+
+    // Update animation state
+    this.animationState.current = "dead";
+    this.animationState.running = false;
+    this.animationState.jumping = false;
+    this.animationState.sliding = false;
+
+    // Play death animation
+    this.playDeathAnimation();
   }
 
   playRunAnimation() {
-    if (!this.isRunning) {
-      return;
-    }
+    if (this.isDead) return;
 
-    // Use a sine wave for the running cycle
-    const time = performance.now() * 0.005;
-    const runningCycle = Math.sin(time * 2);
+    // Reset animation cycles
+    this.runCycle = 0;
 
-    // Calculate leg angles - different handling for forward and backward swings
-    // Forward swings (when sine is positive) - full range
-    // Backward swings (when sine is negative) - limited range to prevent map clipping
-    const leftLegAngle =
-      runningCycle > 0
-        ? (runningCycle * Math.PI) / 4 // Full forward swing
-        : (runningCycle * Math.PI) / 8; // Reduced backward swing
+    const animateRun = () => {
+      if (!this.mesh || this.isDead || !this.animationState.running) return;
 
-    const rightLegAngle = -leftLegAngle; // Opposite movement for right leg
+      this.runCycle += 0.1;
+      const cycle = Math.sin(this.runCycle * 5);
 
-    // Apply different leg movements for left and right
-    if (this.leftLeg) {
-      this.leftLeg.rotation.x = leftLegAngle;
-
-      // Add a slight lift when leg moves backward to prevent clipping
-      if (runningCycle < 0) {
-        this.leftLeg.position.y = 0.15 - runningCycle * 0.1; // Lift more as leg goes backward
-      } else {
-        this.leftLeg.position.y = 0.15; // Normal position
+      // Arm swing
+      if (this.limbs.leftArm && this.limbs.rightArm) {
+        this.limbs.leftArm.rotation.x = cycle * 0.5;
+        this.limbs.rightArm.rotation.x = -cycle * 0.5;
       }
-    }
 
-    if (this.rightLeg) {
-      this.rightLeg.rotation.x = rightLegAngle;
-
-      // Add a slight lift when leg moves backward to prevent clipping
-      if (runningCycle > 0) {
-        this.rightLeg.position.y = 0.15 + runningCycle * 0.1; // Lift more as leg goes backward
-      } else {
-        this.rightLeg.position.y = 0.15; // Normal position
+      // Leg movement
+      if (this.limbs.leftLeg && this.limbs.rightLeg) {
+        this.limbs.leftLeg.rotation.x = -cycle * 0.5;
+        this.limbs.rightLeg.rotation.x = cycle * 0.5;
       }
-    }
 
-    // Synchronize arm movement with opposite leg
-    if (this.leftArm) {
-      this.leftArm.rotation.x = rightLegAngle * 0.7; // Less extreme than legs
-    }
+      // Subtle body bob
+      if (this.limbs.torso) {
+        this.limbs.torso.position.y = Math.abs(cycle) * 0.05 + 0.8;
+      }
 
-    if (this.rightArm) {
-      this.rightArm.rotation.x = leftLegAngle * 0.7; // Less extreme than legs
-    }
+      // Breathing effect for helmet
+      if (this.helmet) {
+        this.helmet.scale.y = 1 + Math.sin(this.runCycle * 2) * 0.01;
+      }
 
-    // Add subtle body bob
-    if (this.body) {
-      this.body.position.y = 0.6 + Math.abs(runningCycle) * 0.08;
-    }
+      requestAnimationFrame(animateRun);
+    };
+
+    animateRun();
   }
 
   playJumpAnimation() {
-    if (this.runAnimationId) {
-      cancelAnimationFrame(this.runAnimationId);
-      this.runAnimationId = null;
-    }
+    if (this.isDead) return;
 
-    // Starting position
-    this.leftLeg.rotation.x = -0.3;
-    this.rightLeg.rotation.x = -0.3;
-    this.leftArm.rotation.x = -0.7;
-    this.rightArm.rotation.x = -0.7;
-
-    const jumpDuration = 700; // ms
-    const startTime = Date.now();
+    // Reset animation cycles
+    this.jumpCycle = 0;
 
     const animateJump = () => {
-      if (!this.animationState.jumping) return;
+      if (!this.mesh || this.isDead) return;
 
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / jumpDuration, 1);
+      this.jumpCycle += 0.1;
 
-      // Mid-jump pose transitions
-      if (progress < 0.5) {
-        // Initial phase - legs tucking, arms out
-        const phase1Progress = progress / 0.5;
-        this.leftLeg.rotation.x = THREE.MathUtils.lerp(
-          -0.3,
-          -1.0,
-          phase1Progress
-        );
-        this.rightLeg.rotation.x = THREE.MathUtils.lerp(
-          -0.3,
-          -1.0,
-          phase1Progress
-        );
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(
-          -0.7,
-          -1.2,
-          phase1Progress
-        );
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(
-          -0.7,
-          -1.2,
-          phase1Progress
-        );
-      } else {
-        // Landing phase - legs extending, arms balancing
-        const phase2Progress = (progress - 0.5) / 0.5;
-        this.leftLeg.rotation.x = THREE.MathUtils.lerp(-1.0, 0, phase2Progress);
-        this.rightLeg.rotation.x = THREE.MathUtils.lerp(
-          -1.0,
-          0,
-          phase2Progress
-        );
-        this.leftArm.rotation.x = THREE.MathUtils.lerp(
-          -1.2,
-          -0.3,
-          phase2Progress
-        );
-        this.rightArm.rotation.x = THREE.MathUtils.lerp(
-          -1.2,
-          -0.3,
-          phase2Progress
-        );
+      // Initial jump pose - arms up, legs tucked
+      if (this.jumpCycle < 1) {
+        // Arms up position
+        if (this.limbs.leftArm && this.limbs.rightArm) {
+          this.limbs.leftArm.rotation.x =
+            (-Math.PI / 4) * Math.min(this.jumpCycle, 1);
+          this.limbs.rightArm.rotation.x =
+            (-Math.PI / 4) * Math.min(this.jumpCycle, 1);
+        }
+
+        // Legs tucked position
+        if (this.limbs.leftLeg && this.limbs.rightLeg) {
+          this.limbs.leftLeg.rotation.x =
+            (Math.PI / 6) * Math.min(this.jumpCycle, 1);
+          this.limbs.rightLeg.rotation.x =
+            (Math.PI / 6) * Math.min(this.jumpCycle, 1);
+        }
+      }
+      // Midair pose
+      else if (this.jumpCycle < 3) {
+        // Hold the position
+      }
+      // Landing preparation
+      else if (this.velocity.y < 0 && this.position.y < 0.5) {
+        // Prepare for landing - extend legs
+        if (this.limbs.leftLeg && this.limbs.rightLeg) {
+          this.limbs.leftLeg.rotation.x = 0;
+          this.limbs.rightLeg.rotation.x = 0;
+        }
+
+        // Arms for balance
+        if (this.limbs.leftArm && this.limbs.rightArm) {
+          this.limbs.leftArm.rotation.x = -Math.PI / 6;
+          this.limbs.rightArm.rotation.x = -Math.PI / 6;
+        }
       }
 
-      // Continue animation until complete
-      if (progress < 1) {
+      if (this.isJumping) {
         requestAnimationFrame(animateJump);
       } else {
-        // End of jump animation, return to running if grounded
-        if (!this.isJumping && !this.isSliding && !this.isDead) {
-          this.isRunning = true;
-          this.animationState.jumping = false;
-          this.playRunAnimation();
-        }
+        // Transition back to running animation
+        this.playRunAnimation();
       }
     };
 
-    requestAnimationFrame(animateJump);
+    animateJump();
   }
 
   playSlideAnimation() {
-    if (this.runAnimationId) {
-      cancelAnimationFrame(this.runAnimationId);
-      this.runAnimationId = null;
-    }
+    if (this.isDead) return;
 
-    const slideDuration = 800; // ms
-    const startTime = Date.now();
+    // Reset animation cycles
+    this.slideCycle = 0;
 
     const animateSlide = () => {
-      if (!this.animationState.sliding) return;
+      if (!this.mesh || this.isDead || !this.isSliding) return;
 
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / slideDuration, 1);
+      this.slideCycle += 0.1;
 
-      // Slide position - lean forward, arms out, legs back
-      if (progress < 0.2) {
-        // Transition into slide
-        const phase1Progress = progress / 0.2;
-        this.mesh.rotation.x = THREE.MathUtils.lerp(
-          0,
-          Math.PI / 6,
-          phase1Progress
-        );
-        this.body.scale.y = THREE.MathUtils.lerp(1, 0.5, phase1Progress);
-        this.body.position.y = THREE.MathUtils.lerp(0.8, 0.4, phase1Progress);
-        this.helmet.position.y = THREE.MathUtils.lerp(1.7, 1.1, phase1Progress);
-      } else if (progress > 0.8) {
-        // Transition out of slide
-        const phase3Progress = (progress - 0.8) / 0.2;
-        this.mesh.rotation.x = THREE.MathUtils.lerp(
-          Math.PI / 6,
-          0,
-          phase3Progress
-        );
-        this.body.scale.y = THREE.MathUtils.lerp(0.5, 1, phase3Progress);
-        this.body.position.y = THREE.MathUtils.lerp(0.4, 0.8, phase3Progress);
-        this.helmet.position.y = THREE.MathUtils.lerp(1.1, 1.7, phase3Progress);
+      // Slide pose - body down, arms forward
+      if (this.limbs.torso) {
+        // Lower the body for sliding
+        this.limbs.torso.rotation.x = Math.PI / 3;
+        this.limbs.torso.position.y = 0.4;
+        this.limbs.torso.position.z = 0.3;
       }
 
-      // Arm position during slide
-      this.leftArm.rotation.x = -Math.PI / 4;
-      this.rightArm.rotation.x = -Math.PI / 4;
+      // Arms forward
+      if (this.limbs.leftArm && this.limbs.rightArm) {
+        this.limbs.leftArm.rotation.x = Math.PI / 2;
+        this.limbs.rightArm.rotation.x = Math.PI / 2;
 
-      // Legs extended backward
-      this.leftLeg.rotation.x = Math.PI / 6;
-      this.rightLeg.rotation.x = Math.PI / 6;
+        // Position arms forward
+        this.limbs.leftArm.position.z = 0.3;
+        this.limbs.rightArm.position.z = 0.3;
+      }
 
-      // Continue animation until complete
-      if (progress < 1) {
+      // Legs straight back
+      if (this.limbs.leftLeg && this.limbs.rightLeg) {
+        this.limbs.leftLeg.rotation.x = -Math.PI / 6;
+        this.limbs.rightLeg.rotation.x = -Math.PI / 6;
+      }
+
+      // Continue animation if still sliding
+      if (this.isSliding) {
         requestAnimationFrame(animateSlide);
       } else {
-        // End of slide animation
-        this.isSliding = false;
-        this.animationState.sliding = false;
-
-        // Reset positions
-        this.mesh.rotation.x = 0;
-        this.body.scale.y = 1;
-        this.body.position.y = 0.8;
-        this.helmet.position.y = 1.7;
-
-        // Return to running if not dead
-        if (!this.isDead) {
-          this.isRunning = true;
-          this.playRunAnimation();
+        // Reset positions when done sliding
+        if (this.limbs.torso) {
+          this.limbs.torso.rotation.x = 0;
+          this.limbs.torso.position.y = 0.8;
+          this.limbs.torso.position.z = 0;
         }
+
+        if (this.limbs.leftArm && this.limbs.rightArm) {
+          this.limbs.leftArm.position.z = 0;
+          this.limbs.rightArm.position.z = 0;
+        }
+
+        // Transition back to running
+        this.playRunAnimation();
       }
     };
 
-    requestAnimationFrame(animateSlide);
+    animateSlide();
   }
 
   playStumbleAnimation() {
-    // Clear running animation if it's active
-    if (this.runAnimationId) {
-      cancelAnimationFrame(this.runAnimationId);
-      this.runAnimationId = null;
-    }
+    if (this.isDead) return;
 
-    // Stumble animation - tilt forward and flail arms
-    this.body.rotation.x = Math.PI / 6; // Tilt forward
-
-    // Animate stumbling over time
-    const startTime = Date.now();
-    const stumbleDuration = 1000; // 1 second
+    // Set stumbling state
+    this.animationState.stumbling = true;
+    this.animationState.running = false;
 
     const animateStumble = () => {
-      if (!this.animationState.stumbling) return;
+      if (!this.mesh || this.isDead) return;
 
-      const elapsed = Date.now() - startTime;
-      const t = Math.min(elapsed / stumbleDuration, 1);
+      // Random stumble motion
+      if (this.limbs.torso) {
+        this.limbs.torso.rotation.z = Math.sin(Date.now() / 50) * 0.2;
+        this.limbs.torso.rotation.x = Math.sin(Date.now() / 70) * 0.1;
+      }
 
-      // Random arm and leg movements to simulate stumbling
-      this.leftArm.rotation.x = Math.sin(t * Math.PI * 4) * 0.5;
-      this.rightArm.rotation.x = Math.cos(t * Math.PI * 4) * 0.5;
-      this.leftLeg.rotation.x = Math.cos(t * Math.PI * 3) * 0.3;
-      this.rightLeg.rotation.x = Math.sin(t * Math.PI * 3) * 0.3;
+      // Arms flailing
+      if (this.limbs.leftArm && this.limbs.rightArm) {
+        this.limbs.leftArm.rotation.z =
+          Math.sin(Date.now() / 40) * 0.3 - Math.PI / 8;
+        this.limbs.rightArm.rotation.z =
+          -Math.sin(Date.now() / 40) * 0.3 + Math.PI / 8;
+        this.limbs.leftArm.rotation.x = Math.sin(Date.now() / 60) * 0.4;
+        this.limbs.rightArm.rotation.x = -Math.sin(Date.now() / 60) * 0.4;
+      }
 
-      if (t < 1) {
-        this.runAnimationId = requestAnimationFrame(animateStumble);
-      } else {
-        // End of stumble animation
-        this.body.rotation.x = 0;
+      // Legs stumbling
+      if (this.limbs.leftLeg && this.limbs.rightLeg) {
+        this.limbs.leftLeg.rotation.x = Math.sin(Date.now() / 50) * 0.3;
+        this.limbs.rightLeg.rotation.x = -Math.sin(Date.now() / 50) * 0.3;
+      }
+
+      if (this.animationState.stumbling) {
+        requestAnimationFrame(animateStumble);
       }
     };
 
-    this.runAnimationId = requestAnimationFrame(animateStumble);
+    animateStumble();
+
+    // Recover after a short time
+    setTimeout(() => {
+      this.animationState.stumbling = false;
+      this.animationState.running = true;
+
+      // Reset rotations
+      if (this.limbs.torso) {
+        this.limbs.torso.rotation.z = 0;
+        this.limbs.torso.rotation.x = 0;
+      }
+
+      // Transition back to running
+      this.playRunAnimation();
+    }, 1000);
   }
 
   playDeathAnimation() {
-    // Clear any existing animations
-    if (this.runAnimationId) cancelAnimationFrame(this.runAnimationId);
-
-    // Death animation - fall backward and rotate
-    const startTime = Date.now();
-    const deathDuration = 1000; // 1 second
+    if (!this.mesh) return;
 
     const animateDeath = () => {
-      const elapsed = Date.now() - startTime;
-      const t = Math.min(elapsed / deathDuration, 1);
+      this.deathCycle += 0.1;
 
-      // Fall backward and rotate
-      this.mesh.rotation.x = (t * Math.PI) / 2; // Fall on back
-      this.mesh.rotation.y = t * Math.PI * 2; // Spin around
-      this.mesh.position.y = Math.max(0, Math.sin(t * Math.PI) * 2); // Small bounce
+      // Fall backwards and spin slightly
+      this.mesh.rotation.x = Math.min(this.deathCycle * 0.1, Math.PI / 2);
+      this.mesh.rotation.z = this.deathCycle * 0.05;
 
-      if (t < 1) {
+      // Limbs splayed out
+      if (this.limbs.leftArm && this.limbs.rightArm) {
+        this.limbs.leftArm.rotation.z = Math.min(
+          this.deathCycle * 0.2,
+          Math.PI / 2
+        );
+        this.limbs.rightArm.rotation.z = Math.min(
+          -this.deathCycle * 0.2,
+          -Math.PI / 2
+        );
+      }
+
+      if (this.limbs.leftLeg && this.limbs.rightLeg) {
+        this.limbs.leftLeg.rotation.z = Math.min(
+          this.deathCycle * 0.1,
+          Math.PI / 6
+        );
+        this.limbs.rightLeg.rotation.z = Math.min(
+          -this.deathCycle * 0.1,
+          -Math.PI / 6
+        );
+      }
+
+      // Continue animation if still in death animation
+      if (this.isDead && this.deathCycle < 30) {
         requestAnimationFrame(animateDeath);
       }
     };
 
+    // Start death animation
+    this.deathCycle = 0;
     animateDeath();
   }
 
   update(delta) {
-    // Normalize delta for consistent movement
-    const normalizedDelta = delta * 60; // Normalize to 60fps
+    if (!this.mesh) return;
 
-    // Debug output for physics state
-    if (this.isJumping) {
-      console.log(
-        `Jumping - Height: ${this.position.y.toFixed(
-          2
-        )}, Velocity: ${this.velocity.y.toFixed(2)}`
-      );
-    }
+    // Apply physics
+    if (!this.isDead) {
+      // Lane movement
+      const laneX = this.targetLane * this.laneWidth;
+      const lerpFactor = 0.2; // Smoother lane transitions
+      this.position.x += (laneX - this.position.x) * lerpFactor;
 
-    // Check shield timer
-    if (
-      this.shieldActive &&
-      Date.now() - this.shieldTimer > this.shieldDuration
-    ) {
-      this.deactivateShield();
-    }
+      // Move forward based on game speed
+      if (this.gameRef) {
+        this.position.z += this.gameRef.gameSpeed * delta * 60;
+      }
 
-    // Handle jumping physics
-    if (this.isJumping) {
-      this.position.y += this.velocity.y * normalizedDelta;
-      this.velocity.y -= this.gravity * normalizedDelta;
+      // Apply gravity if jumping
+      if (this.isJumping) {
+        this.velocity.y -= this.gravity;
+        this.position.y += this.velocity.y;
 
-      // Check if landed
-      if (this.position.y <= 0) {
-        this.position.y = 0;
-        this.velocity.y = 0;
-        this.isJumping = false;
-        console.log("Player landed");
+        // Check if landed
+        if (this.position.y <= 0) {
+          this.position.y = 0;
+          this.velocity.y = 0;
+          this.isJumping = false;
 
-        // Resume running if not doing something else
-        if (!this.isSliding && !this.animationState.stumbling && !this.isDead) {
-          this.isRunning = true;
-          this.animationState.jumping = false;
-          this.playRunAnimation();
+          // Transition back to running
+          if (!this.isSliding && !this.isDead) {
+            this.animationState.jumping = false;
+            this.animationState.running = true;
+            this.animationState.current = "running";
+
+            // Play landing effect
+            this.createLandingEffect();
+          }
         }
+      }
+    } else {
+      // Death physics - fall down
+      this.velocity.y -= this.gravity * 0.5;
+      this.position.y += this.velocity.y;
+
+      // Stop at ground level
+      if (this.position.y < -2) {
+        this.position.y = -2;
+        this.velocity.y = 0;
       }
     }
 
-    // Handle lane changes (left/right movement)
-    const targetX = this.targetLane * this.laneWidth;
-
-    // Improved lane change speed - faster response time
-    const laneChangeSpeed = 8 * normalizedDelta; // Increased speed
-    const laneChangeDelta =
-      (targetX - this.position.x) * laneChangeSpeed * 0.01;
-
-    // Log lane change movement
-    if (Math.abs(this.position.x - targetX) > 0.01) {
-      console.log(
-        `Lane change - Current: ${this.position.x.toFixed(
-          2
-        )}, Target: ${targetX.toFixed(2)}`
-      );
-      // Move towards target lane with easing
-      this.position.x += laneChangeDelta;
-    } else {
-      // Snap to exact lane position when close enough
-      this.position.x = targetX;
-      this.currentLane = this.targetLane;
+    // Animation state transition blending
+    if (
+      this.animationState.transitionTime <
+      this.animationState.transitionDuration
+    ) {
+      this.animationState.transitionTime += delta;
     }
 
-    // Move forward (if not dead)
-    if (!this.isDead) {
-      const forwardStep = this.speed * normalizedDelta;
-      this.position.z += forwardStep;
-    }
-
-    // Update mesh position
+    // Update player position
     this.mesh.position.set(this.position.x, this.position.y, this.position.z);
 
-    // Start running animation if not already running and should be
-    if (this.isRunning && !this.runAnimationId && !this.isDead) {
-      this.playRunAnimation();
+    // Update hitbox position for collision detection
+    this.updateHitboxPosition();
+
+    // Update shield effect if active
+    if (this.shieldActive) {
+      this.shieldTimer -= delta * 1000;
+      if (this.shieldTimer <= 0) {
+        this.deactivateShield();
+      }
     }
   }
 
-  reset() {
-    // Reset position
-    this.position = { x: 0, y: 0, z: 0 };
-    this.velocity = { x: 0, y: 0, z: 0 };
-    this.targetLane = 0;
-    this.currentLane = 0;
+  createLandingEffect() {
+    if (!this.mesh) return;
 
-    // Reset state
-    this.isDead = false;
-    this.isJumping = false;
-    this.isSliding = false;
-    this.health = 3;
+    // Create dust particles around feet
+    const particleCount = 15;
+    const particles = new THREE.Group();
 
-    // Reset animations
-    this.isRunning = true;
-    this.animationState.jumping = false;
-    this.animationState.sliding = false;
-    this.animationState.stumbling = false;
-    this.animationState.recovering = false;
+    for (let i = 0; i < particleCount; i++) {
+      const particle = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05 + Math.random() * 0.05, 8, 8),
+        new THREE.MeshBasicMaterial({
+          color: 0xcccccc,
+          transparent: true,
+          opacity: 0.7,
+        })
+      );
 
-    // Reset shield
-    this.deactivateShield();
+      // Random position around the feet
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 0.3 + Math.random() * 0.3;
+      particle.position.set(
+        Math.cos(angle) * radius,
+        0.05,
+        Math.sin(angle) * radius
+      );
 
-    // Reset mesh
-    this.mesh.position.set(0, 0, 0);
-    this.mesh.rotation.set(0, 0, 0);
-    this.body.rotation.set(0, 0, 0);
-    this.helmet.position.y = 1.7;
-    this.leftLeg.rotation.set(0, 0, 0);
-    this.rightLeg.rotation.set(0, 0, 0);
-    this.leftArm.rotation.set(0, 0, 0);
-    this.rightArm.rotation.set(0, 0, 0);
+      // Random velocity
+      particle.userData.velocity = {
+        x: (Math.random() - 0.5) * 0.05,
+        y: 0.02 + Math.random() * 0.03,
+        z: (Math.random() - 0.5) * 0.05,
+      };
 
-    // Reset powerup indicator
-    if (this.powerupRing && this.powerupLight) {
-      this.powerupRing.material.opacity = 0;
-      this.powerupLight.intensity = 0;
-      this.activePowerup = null;
+      particles.add(particle);
     }
 
-    // Start running animation
-    this.playRunAnimation();
+    // Add to scene
+    particles.position.copy(this.mesh.position);
+    particles.position.y = 0;
+    this.scene.add(particles);
+
+    // Animate particles
+    let lifetime = 0;
+
+    const animateParticles = () => {
+      lifetime += 1 / 60;
+
+      particles.children.forEach((particle) => {
+        // Move particle
+        particle.position.x += particle.userData.velocity.x;
+        particle.position.y += particle.userData.velocity.y;
+        particle.position.z += particle.userData.velocity.z;
+
+        // Apply gravity
+        particle.userData.velocity.y -= 0.001;
+
+        // Fade out
+        particle.material.opacity = 0.7 * (1 - lifetime);
+      });
+
+      if (lifetime < 1) {
+        requestAnimationFrame(animateParticles);
+      } else {
+        // Remove particles
+        this.scene.remove(particles);
+      }
+    };
+
+    animateParticles();
+  }
+
+  // Get the current hitbox for collision detection
+  getHitbox() {
+    // Ensure hitbox exists
+    if (!this.hitbox) {
+      // If hitbox isn't initialized yet, provide sensible defaults
+      this.hitbox = {
+        standing: { width: 0.8, height: 1.8, depth: 0.8 },
+        sliding: { width: 0.8, height: 0.9, depth: 1.2 },
+      };
+    }
+
+    const box = this.isSliding ? this.hitbox.sliding : this.hitbox.standing;
+
+    // Y offset for sliding
+    const yOffset = this.isSliding ? -0.45 : 0;
+
+    // Ensure position exists
+    if (!this.position) {
+      this.position = { x: 0, y: 0, z: 0 };
+    }
+
+    return {
+      min: {
+        x: this.position.x - box.width / 2,
+        y: this.position.y + yOffset,
+        z: this.position.z - box.depth / 2,
+      },
+      max: {
+        x: this.position.x + box.width / 2,
+        y: this.position.y + yOffset + box.height,
+        z: this.position.z + box.depth / 2,
+      },
+      width: box.width,
+      height: box.height,
+      depth: box.depth,
+    };
+  }
+
+  createDebugHitbox() {
+    // Remove any existing hitbox
+    if (this.hitboxMesh) {
+      this.scene.remove(this.hitboxMesh);
+    }
+
+    // Create a wireframe box representing the hitbox
+    const hitboxSize = this.isSliding
+      ? this.hitbox.sliding
+      : this.hitbox.standing;
+    const hitboxGeometry = new THREE.BoxGeometry(
+      hitboxSize.width,
+      hitboxSize.height,
+      hitboxSize.depth
+    );
+    const hitboxMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.5,
+    });
+
+    this.hitboxMesh = new THREE.Mesh(hitboxGeometry, hitboxMaterial);
+    this.scene.add(this.hitboxMesh);
+
+    // Update position
+    this.updateHitboxPosition();
+  }
+
+  updateHitboxPosition() {
+    if (!this.hitboxMesh || !this.debugMode) return;
+
+    const hitboxSize = this.isSliding
+      ? this.hitbox.sliding
+      : this.hitbox.standing;
+    this.hitboxMesh.scale.set(
+      hitboxSize.width,
+      hitboxSize.height,
+      hitboxSize.depth
+    );
+
+    // Position the hitbox at player position with y offset for sliding
+    const yOffset = this.isSliding ? -0.45 : 0;
+    this.hitboxMesh.position.set(
+      this.position.x,
+      this.position.y + yOffset + hitboxSize.height / 2,
+      this.position.z
+    );
   }
 
   // Use currently active powerup
@@ -1377,6 +1331,96 @@ class Player {
     const texture = new THREE.Texture(canvas);
     texture.needsUpdate = true;
     return texture;
+  }
+
+  reset() {
+    // Reset position
+    this.position = { x: 0, y: 0, z: 0 };
+    this.velocity = { x: 0, y: 0, z: 0 };
+    this.targetLane = 0;
+    this.currentLane = 0;
+
+    // Reset state
+    this.isDead = false;
+    this.isJumping = false;
+    this.isSliding = false;
+    this.health = 3; // Reset health to maximum
+    this.canBeHit = true;
+
+    // Reset animation states
+    this.animationState = {
+      running: true,
+      jumping: false,
+      sliding: false,
+      stumbling: false,
+      recovering: false,
+      current: "running",
+      transitionTime: 0,
+      transitionDuration: 0.3,
+    };
+
+    // Reset animation cycles
+    this.runCycle = 0;
+    this.jumpCycle = 0;
+    this.slideCycle = 0;
+    this.deathCycle = 0;
+
+    // Reset mesh positions and rotations
+    if (this.mesh) {
+      this.mesh.position.set(0, 0, 0);
+      this.mesh.rotation.set(0, 0, 0);
+
+      // Reset any visual effects
+      if (this.shield) {
+        this.shield.visible = false;
+      }
+
+      if (this.shieldPattern) {
+        this.shieldPattern.visible = false;
+      }
+
+      // Reset limb positions
+      if (this.limbs.torso) {
+        this.limbs.torso.position.y = 0.8;
+        this.limbs.torso.position.z = 0;
+        this.limbs.torso.rotation.x = 0;
+        this.limbs.torso.rotation.z = 0;
+      }
+
+      if (this.limbs.leftArm && this.limbs.rightArm) {
+        this.limbs.leftArm.rotation.x = 0;
+        this.limbs.leftArm.rotation.z = -Math.PI / 8;
+        this.limbs.rightArm.rotation.x = 0;
+        this.limbs.rightArm.rotation.z = Math.PI / 8;
+        this.limbs.leftArm.position.z = 0;
+        this.limbs.rightArm.position.z = 0;
+      }
+
+      if (this.limbs.leftLeg && this.limbs.rightLeg) {
+        this.limbs.leftLeg.rotation.x = 0;
+        this.limbs.leftLeg.rotation.z = 0;
+        this.limbs.rightLeg.rotation.x = 0;
+        this.limbs.rightLeg.rotation.z = 0;
+      }
+    }
+
+    // Reset shield status
+    this.shieldActive = false;
+    this.shieldTimer = 0;
+
+    // Reset powerup status
+    this.activePowerup = null;
+
+    // Reset powerup indicator if exists
+    if (this.powerupRing && this.powerupLight) {
+      this.powerupRing.material.opacity = 0;
+      this.powerupLight.intensity = 0;
+    }
+
+    // Start running animation
+    this.playRunAnimation();
+
+    console.log("Player reset complete");
   }
 }
 

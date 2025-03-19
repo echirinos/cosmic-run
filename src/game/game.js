@@ -11,14 +11,43 @@ class Game {
     this.score = 0;
     this.crystals = 0;
     this.gameSpeed = 0.2;
+    this.initialGameSpeed = 0.2;
+    this.maxGameSpeed = 0.8; // Maximum speed the game can reach
+    this.speedIncreaseRate = 0.0001; // How quickly the game speeds up
+    this.distanceMultiplier = 5; // How distance translates to score
     this.deviceCapabilities = deviceCapabilities || {
       highPerformance: false,
       touchScreen: false,
     };
 
+    // Difficulty settings
+    this.currentDifficulty = "easy";
+    this.difficultyLevels = {
+      easy: { speedThreshold: 0.2, obstacleFrequency: 0.2, obstacleVariety: 1 },
+      medium: {
+        speedThreshold: 0.4,
+        obstacleFrequency: 0.4,
+        obstacleVariety: 2,
+      },
+      hard: { speedThreshold: 0.6, obstacleFrequency: 0.6, obstacleVariety: 3 },
+    };
+
+    // Progression tracking
+    this.distanceTraveled = 0;
+    this.difficultyCheckpoints = [500, 1500, 3000, 5000, 8000]; // Distance checkpoints for difficulty increases
+    this.nextCheckpointIndex = 0;
+
     // Track if game is over
     this.isGameOver = false;
     this.isPaused = false;
+    this.isRunning = false;
+
+    // Camera shake parameters
+    this.cameraShaking = false;
+    this.shakeIntensity = 0;
+    this.shakeDuration = 0;
+    this.shakeElapsed = 0;
+    this.originalCameraPosition = new THREE.Vector3();
 
     // Event system
     this.eventListeners = {};
@@ -64,10 +93,7 @@ class Game {
 
     // Create player
     this.player = new Player(this.scene);
-    this.player.gameRef = this; // Add reference to game for powerup effects
-
-    // Distance traveled (for score)
-    this.distanceTraveled = 0;
+    this.player.gameRef = this; // Add reference to game for powerup effects and movement
 
     // Set up UI
     this.setupUI();
@@ -125,6 +151,9 @@ class Game {
         this.increaseScore(1);
       }
     }, 100);
+
+    // Add a post-processing composer for visual effects
+    this.setupPostProcessing();
 
     console.log("Game initialized");
   }
@@ -302,69 +331,470 @@ class Game {
   }
 
   updatePhysics(timeStep) {
-    if (this.isPaused) return;
+    if (this.isGameOver || this.isPaused) return;
 
-    // Update player first to get latest position
-    if (this.player) {
-      this.player.update(timeStep * this.gameSpeed);
+    // Mark game as running
+    if (!this.isRunning) {
+      this.isRunning = true;
     }
 
-    // Update world with player position
-    if (this.world && this.player) {
-      const playerPosition = this.player.getPosition();
-      this.world.update(timeStep, this.gameSpeed, playerPosition);
+    // Gradually increase game speed over time
+    if (this.gameSpeed < this.maxGameSpeed) {
+      this.gameSpeed += this.speedIncreaseRate * timeStep * 60;
     }
 
-    // Update camera
+    // Update distance traveled (for score calculation)
+    const distanceThisFrame = this.gameSpeed * timeStep * 60;
+    this.distanceTraveled += distanceThisFrame;
+
+    // Check for difficulty increase based on distance checkpoints
+    this.updateDifficulty();
+
+    // Update player physics
+    this.player.update(timeStep);
+
+    // Update world with current speed
+    this.world.update(timeStep, this.gameSpeed, this.player.getPosition());
+
+    // Handle collisions between player and world objects
+    this.handleCollisions();
+
+    // Update camera shake effect
+    this.updateCameraShake(timeStep);
+
+    // Update camera position to follow player
     this.updateCamera(timeStep);
 
-    // Check player health
-    if (this.player && this.player.health <= 0 && !this.player.isDead) {
-      this.endGame();
-    }
+    // Update player light (if any)
+    this.updatePlayerLight();
 
-    // Update game state
-    this.distanceTraveled += timeStep * 5 * this.gameSpeed;
+    // Update score based on distance
+    const scoreGain = Math.round(distanceThisFrame * this.distanceMultiplier);
+    if (scoreGain > 0) {
+      this.increaseScore(scoreGain);
+    }
   }
 
-  // Update camera position to follow player
-  updateCamera(delta) {
-    if (!this.player) return;
+  updateDifficulty() {
+    // Check if we've reached the next difficulty checkpoint
+    if (
+      this.nextCheckpointIndex < this.difficultyCheckpoints.length &&
+      this.distanceTraveled >=
+        this.difficultyCheckpoints[this.nextCheckpointIndex]
+    ) {
+      // Show difficulty increase message
+      this.showMessage(`Speed increasing!`, 2000);
 
-    const playerPos = this.player.getPosition();
+      // Trigger camera shake
+      this.triggerCameraShake(0.3, 0.5);
 
-    // Calculate target camera position based on player
-    const cameraPositionTarget = new THREE.Vector3();
-    cameraPositionTarget.copy(playerPos);
-    cameraPositionTarget.add(this.cameraOffset);
+      // Flash the screen to indicate difficulty change
+      this.flashScreen(new THREE.Color(0x8800ff), 0.5);
 
-    // Apply smooth camera movement
-    this.cameraPosition.lerp(cameraPositionTarget, delta * 5);
-
-    // Look at a point ahead of the player
-    const lookTarget = new THREE.Vector3();
-    lookTarget.copy(playerPos);
-    lookTarget.z += 10; // Look AHEAD of the player
-
-    // Apply camera shake if active
-    if (this.cameraShakeAmount > 0) {
-      this.cameraPosition.x += (Math.random() - 0.5) * this.cameraShakeAmount;
-      this.cameraPosition.y += (Math.random() - 0.5) * this.cameraShakeAmount;
-      this.cameraShakeAmount *= 0.95; // Decay shake effect
-
-      if (this.cameraShakeAmount < 0.01) {
-        this.cameraShakeAmount = 0;
+      // Increase obstacle frequency in the world
+      if (this.gameSpeed >= this.difficultyLevels.hard.speedThreshold) {
+        this.currentDifficulty = "hard";
+      } else if (
+        this.gameSpeed >= this.difficultyLevels.medium.speedThreshold
+      ) {
+        this.currentDifficulty = "medium";
       }
+
+      // Update world with new difficulty settings
+      this.world.setDifficulty(
+        this.currentDifficulty,
+        this.difficultyLevels[this.currentDifficulty]
+      );
+
+      // Move to next checkpoint
+      this.nextCheckpointIndex++;
+    }
+  }
+
+  // Improved collision detection
+  handleCollisions() {
+    if (this.isGameOver || this.isPaused || !this.player || !this.world) return;
+
+    try {
+      // Get player hitbox
+      const playerHitbox = this.player.getHitbox();
+
+      // Verify hitbox has required properties
+      if (!playerHitbox || !playerHitbox.min || !playerHitbox.max) {
+        console.warn("Invalid player hitbox in handleCollisions");
+        return;
+      }
+
+      // Check collisions with world objects
+      const collisions = this.world.checkCollisions(playerHitbox);
+
+      if (collisions && collisions.length > 0) {
+        collisions.forEach((collision) => {
+          if (collision.type === "obstacle") {
+            console.log(
+              "Collision with obstacle:",
+              collision.object.name || "unnamed obstacle"
+            );
+
+            // Player hit by obstacle
+            const isDead = this.player.hit();
+
+            // If player died, end the game
+            if (isDead) {
+              this.endGame();
+            } else {
+              // Player survived, trigger camera shake
+              this.triggerCameraShake(0.5, 0.3);
+              this.flashScreen(new THREE.Color(1, 0, 0), 0.3);
+              this.showMessage("Ouch!");
+
+              // Update health UI
+              this.updateHealthUI();
+            }
+          } else if (collision.type === "crystal") {
+            // Collected a crystal
+            this.world.collectItem(collision.object);
+            this.increaseCrystals(1);
+            this.player.createCollectionEffect(collision.object.position);
+          } else if (collision.type === "powerup") {
+            // Collected a powerup
+            const powerupType =
+              collision.object.userData?.powerupType || "unknown";
+            this.world.collectItem(collision.object);
+            this.player.collectPowerup(powerupType);
+            this.showMessage(`${powerupType.toUpperCase()} activated!`);
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error in handleCollisions:", error);
+    }
+  }
+
+  // Improved camera shake function
+  triggerCameraShake(intensity = 0.2, duration = 0.3) {
+    this.cameraShaking = true;
+    this.shakeIntensity = intensity;
+    this.shakeDuration = duration;
+    this.shakeElapsed = 0;
+
+    // Store original camera position if not already stored
+    if (!this.originalCameraPosition) {
+      this.originalCameraPosition = new THREE.Vector3();
+    }
+    this.originalCameraPosition.copy(this.camera.position);
+  }
+
+  updateCameraShake(timeStep) {
+    if (!this.cameraShaking) return;
+
+    // Update elapsed time
+    this.shakeElapsed += timeStep;
+
+    // If shake duration completed, reset camera position
+    if (this.shakeElapsed >= this.shakeDuration) {
+      this.cameraShaking = false;
+      this.camera.position.copy(this.originalCameraPosition);
+      return;
     }
 
-    // Update camera position and rotation
-    this.camera.position.copy(this.cameraPosition);
+    // Calculate shake amount with easing out
+    const shakeProgress = this.shakeElapsed / this.shakeDuration;
+    const shakeAmount = this.shakeIntensity * (1 - Math.pow(shakeProgress, 2));
+
+    // Apply random shake to camera
+    this.camera.position.set(
+      this.originalCameraPosition.x + (Math.random() - 0.5) * shakeAmount,
+      this.originalCameraPosition.y + (Math.random() - 0.5) * shakeAmount,
+      this.originalCameraPosition.z + (Math.random() - 0.5) * shakeAmount
+    );
+  }
+
+  // Improved camera update
+  updateCamera(delta) {
+    if (!this.player || !this.camera) return;
+
+    // Get player position
+    const playerPosition = this.player.getPosition();
+
+    // Calculate target camera position - more dynamic follow with height adjustment
+    const targetCameraPos = new THREE.Vector3();
+
+    // Standard offset
+    targetCameraPos.copy(this.cameraOffset);
+
+    // Adjust for player lane position (smoother following)
+    const laneOffset = playerPosition.x * 0.5; // Half the player's lane offset
+    targetCameraPos.x += laneOffset;
+
+    // Adjust for player jumping (camera follows up slightly)
+    if (this.player.isJumping) {
+      targetCameraPos.y += playerPosition.y * 0.3; // Partial follow of jump height
+    }
+
+    // Adjust target position relative to player
+    targetCameraPos.add(playerPosition);
+
+    // Smoothly interpolate current camera position to target
+    if (!this.cameraShaking) {
+      // Store position for shake reference
+      this.originalCameraPosition.lerp(targetCameraPos, delta * 2.5);
+      this.camera.position.copy(this.originalCameraPosition);
+    }
+
+    // Calculate look target - look ahead of player
+    const lookTarget = new THREE.Vector3(
+      playerPosition.x * 0.2, // Slight offset based on lane
+      playerPosition.y * 0.1 + 1, // Look slightly up
+      playerPosition.z + 10 // Look ahead
+    );
+
+    // Update camera to look at target
     this.camera.lookAt(lookTarget);
   }
 
-  // Trigger camera shake effect (for impacts, explosions, etc.)
-  triggerCameraShake(intensity = 0.2) {
-    this.cameraShakeAmount = intensity;
+  // Improved end game function with proper death sequence
+  endGame() {
+    if (this.isGameOver) return;
+
+    this.isGameOver = true;
+    this.isRunning = false;
+
+    console.log("Game over! Final score:", this.score);
+
+    // Play death effects
+    this.triggerCameraShake(1.0, 1.0);
+    this.flashScreen(new THREE.Color(1, 0, 0), 1.0);
+
+    // Set game-over UI elements
+    this.showMessage("GAME OVER", 5000);
+
+    // Create death particle effect
+    if (this.player && this.player.mesh) {
+      this.createDeathEffect(this.player.getPosition());
+    }
+
+    // Show game over screen after a delay
+    setTimeout(() => {
+      this.showGameOverScreen();
+    }, 1500);
+  }
+
+  // Create death effect
+  createDeathEffect(position) {
+    // Create explosion-like particle effect
+    const particleCount = 50;
+    const particles = new THREE.Group();
+
+    for (let i = 0; i < particleCount; i++) {
+      const size = 0.1 + Math.random() * 0.2;
+      const particle = new THREE.Mesh(
+        new THREE.SphereGeometry(size, 8, 8),
+        new THREE.MeshBasicMaterial({
+          color: new THREE.Color(
+            0.8 + Math.random() * 0.2,
+            0.2 + Math.random() * 0.2,
+            0.1 + Math.random() * 0.1
+          ),
+          transparent: true,
+          opacity: 0.8,
+        })
+      );
+
+      // Random position around the player
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 1;
+      particle.position.set(
+        Math.cos(angle) * radius,
+        Math.sin(angle) * radius,
+        (Math.random() - 0.5) * radius
+      );
+
+      // Random velocity
+      particle.userData.velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.2,
+        0.1 + Math.random() * 0.2,
+        (Math.random() - 0.5) * 0.2
+      );
+
+      // Random rotation speed
+      particle.userData.rotationSpeed = new THREE.Vector3(
+        Math.random() * 0.2,
+        Math.random() * 0.2,
+        Math.random() * 0.2
+      );
+
+      particles.add(particle);
+    }
+
+    // Add to scene
+    particles.position.copy(position);
+    this.scene.add(particles);
+
+    // Animate particles
+    let lifetime = 0;
+
+    const animateParticles = () => {
+      lifetime += 1 / 60;
+
+      particles.children.forEach((particle) => {
+        // Move particle
+        particle.position.add(particle.userData.velocity);
+
+        // Rotate particle
+        particle.rotation.x += particle.userData.rotationSpeed.x;
+        particle.rotation.y += particle.userData.rotationSpeed.y;
+        particle.rotation.z += particle.userData.rotationSpeed.z;
+
+        // Apply gravity
+        particle.userData.velocity.y -= 0.01;
+
+        // Fade out
+        particle.material.opacity = 0.8 * (1 - lifetime);
+      });
+
+      if (lifetime < 1 && !this.isGameOver) {
+        requestAnimationFrame(animateParticles);
+      } else {
+        // Remove particles
+        this.scene.remove(particles);
+
+        // Dispose of resources
+        particles.children.forEach((particle) => {
+          particle.geometry.dispose();
+          particle.material.dispose();
+        });
+      }
+    };
+
+    animateParticles();
+  }
+
+  // Improved flash screen function
+  flashScreen(color, duration = 0.3) {
+    // Create overlay if it doesn't exist
+    if (!this.flashOverlay) {
+      this.flashOverlay = document.createElement("div");
+      this.flashOverlay.style.position = "absolute";
+      this.flashOverlay.style.top = "0";
+      this.flashOverlay.style.left = "0";
+      this.flashOverlay.style.width = "100%";
+      this.flashOverlay.style.height = "100%";
+      this.flashOverlay.style.pointerEvents = "none";
+      this.flashOverlay.style.zIndex = "1000";
+      this.flashOverlay.style.transition = "opacity 0.3s ease-out";
+      this.flashOverlay.style.opacity = "0";
+
+      document.getElementById("game-container").appendChild(this.flashOverlay);
+    }
+
+    // Set color and show the overlay
+    const hexColor = color.getHexString();
+    this.flashOverlay.style.backgroundColor = `#${hexColor}`;
+    this.flashOverlay.style.opacity = "0.6";
+
+    // Hide it after the duration
+    setTimeout(() => {
+      this.flashOverlay.style.opacity = "0";
+    }, duration * 1000);
+  }
+
+  // Improved animate function with post-processing support
+  animate(time) {
+    // Calculate delta time
+    const delta = this.clock.getDelta();
+
+    // Update physics with fixed time step
+    this.updatePhysics(delta);
+
+    // Only render if the game is running
+    if (!this.isPaused) {
+      // Use post-processing composer if available
+      if (this.composer) {
+        this.composer.render();
+      } else {
+        // Fallback to standard renderer
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    // Update FPS counter
+    this.fpsCounter.frames++;
+    if (time - this.fpsCounter.lastTime > 1000) {
+      this.fpsCounter.fps = Math.round(
+        (this.fpsCounter.frames * 1000) / (time - this.fpsCounter.lastTime)
+      );
+      this.fpsCounter.lastTime = time;
+      this.fpsCounter.frames = 0;
+
+      // Update UI
+      const fpsDisplay = document.getElementById("fps-display");
+      if (fpsDisplay) {
+        fpsDisplay.textContent = `FPS: ${this.fpsCounter.fps}`;
+      }
+    }
+
+    // Continue animation loop
+    requestAnimationFrame(this.animate.bind(this));
+  }
+
+  setupPostProcessing() {
+    // Skip for low performance devices
+    if (
+      this.deviceCapabilities &&
+      this.deviceCapabilities.highPerformance === false
+    ) {
+      console.log("Skipping post-processing setup for low performance device");
+      return;
+    }
+
+    // Import effects if available
+    try {
+      const {
+        EffectComposer,
+      } = require("three/examples/jsm/postprocessing/EffectComposer.js");
+      const {
+        RenderPass,
+      } = require("three/examples/jsm/postprocessing/RenderPass.js");
+      const {
+        UnrealBloomPass,
+      } = require("three/examples/jsm/postprocessing/UnrealBloomPass.js");
+      const {
+        ShaderPass,
+      } = require("three/examples/jsm/postprocessing/ShaderPass.js");
+      const {
+        FXAAShader,
+      } = require("three/examples/jsm/shaders/FXAAShader.js");
+
+      // Create composer
+      this.composer = new EffectComposer(this.renderer);
+
+      // Add render pass
+      const renderPass = new RenderPass(this.scene, this.camera);
+      this.composer.addPass(renderPass);
+
+      // Add bloom pass for glow effects
+      const bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        0.5, // strength
+        0.4, // radius
+        0.85 // threshold
+      );
+      this.composer.addPass(bloomPass);
+
+      // Add anti-aliasing pass
+      const fxaaPass = new ShaderPass(FXAAShader);
+      fxaaPass.uniforms.resolution.value.set(
+        1 / window.innerWidth,
+        1 / window.innerHeight
+      );
+      this.composer.addPass(fxaaPass);
+
+      console.log("Post-processing setup complete");
+    } catch (error) {
+      console.warn("Could not initialize post-processing:", error);
+      this.composer = null;
+    }
   }
 
   setupUI() {
@@ -498,10 +928,6 @@ class Game {
     }
   }
 
-  handleCollisions() {
-    // This will be implemented by the world and player
-  }
-
   showMessage(text, duration = 2000) {
     this.messageElement.textContent = text;
     this.messageElement.style.opacity = "1";
@@ -509,31 +935,6 @@ class Game {
     setTimeout(() => {
       this.messageElement.style.opacity = "0";
     }, duration);
-  }
-
-  flashScreen(color) {
-    // Create a full-screen flash effect when player gets hit
-    const flash = document.createElement("div");
-    flash.style.position = "fixed";
-    flash.style.top = "0";
-    flash.style.left = "0";
-    flash.style.width = "100%";
-    flash.style.height = "100%";
-    flash.style.backgroundColor = "#" + color.toString(16).padStart(6, "0");
-    flash.style.opacity = "0.5";
-    flash.style.pointerEvents = "none";
-    flash.style.zIndex = "1000";
-    flash.style.transition = "opacity 0.3s ease-out";
-
-    document.body.appendChild(flash);
-
-    // Fade out and remove
-    setTimeout(() => {
-      flash.style.opacity = "0";
-      setTimeout(() => {
-        document.body.removeChild(flash);
-      }, 300);
-    }, 50);
   }
 
   updateHealthUI() {
@@ -591,27 +992,6 @@ class Game {
     this.clock.start();
   }
 
-  endGame() {
-    if (this.isGameOver) return;
-
-    this.isGameOver = true;
-    clearInterval(this.scoreInterval);
-
-    // Show game over screen
-    this.showGameOverScreen();
-
-    // Trigger intense camera shake
-    this.triggerCameraShake(0.5);
-
-    // Disconnect from multiplayer
-    if (this.multiplayerManager) {
-      this.multiplayerManager.disconnect();
-    }
-
-    // Trigger game over event
-    this.trigger("gameOver", this.score, this.crystals);
-  }
-
   showGameOverScreen() {
     const gameOverScreen = document.getElementById("game-over");
     if (!gameOverScreen) return;
@@ -634,17 +1014,20 @@ class Game {
   }
 
   restart() {
+    console.log("Restarting game...");
+
     // Reset game state
     this.score = 0;
     this.crystals = 0;
-    this.gameSpeed = 0.2;
+    this.gameSpeed = this.initialGameSpeed;
+    this.distanceTraveled = 0;
     this.isGameOver = false;
     this.isPaused = false;
-    this.distanceTraveled = 0;
+    this.isRunning = false;
 
-    // Update UI
-    this.scoreElement.textContent = "0";
-    this.crystalElement.textContent = "💎 0";
+    // Reset difficulty
+    this.currentDifficulty = "easy";
+    this.nextCheckpointIndex = 0;
 
     // Reset player
     this.player.reset();
@@ -652,20 +1035,27 @@ class Game {
     // Reset world
     this.world.reset();
 
-    // Reconnect to multiplayer if available
-    if (
-      this.multiplayerManager &&
-      typeof this.multiplayerManager.init === "function"
-    ) {
-      this.multiplayerManager.init();
+    // Reset camera position
+    this.camera.position.copy(this.cameraOffset);
+
+    // Update UI
+    this.updateHealthUI();
+
+    // Hide game over screen
+    const gameOverScreen = document.getElementById("game-over-screen");
+    if (gameOverScreen) {
+      gameOverScreen.style.display = "none";
     }
 
-    // Restart score interval
-    this.scoreInterval = setInterval(() => {
-      if (!this.isPaused && !this.isGameOver) {
-        this.increaseScore(1);
-      }
-    }, 100);
+    // Show a "Get Ready" message
+    this.showMessage("Get Ready!", 2000);
+
+    // Play start sound if available
+    if (window.sound && window.sound.start) {
+      window.sound.start.play();
+    }
+
+    console.log("Game restarted!");
   }
 
   // Event system

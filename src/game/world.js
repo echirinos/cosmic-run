@@ -1803,8 +1803,8 @@ class World {
     // Update track effects only when player is close
     this.updateNearbyEffects(normalizedDelta, playerPosition);
 
-    // Check for collisions with more optimized algorithm
-    this.checkCollisions(playerPosition);
+    // We don't need to check collisions here - the game handles this
+    // The game will call checkCollisions directly with the player hitbox
 
     // Manage chunks with optimized visibility culling
     this.manageChunks(playerPosition);
@@ -1815,8 +1815,8 @@ class World {
     const visibilityDistance = 100;
 
     // Update objects in active chunks only if they're visible
-    for (let i = 0; i < this.chunks.length; i++) {
-      const chunk = this.chunks[i];
+    for (let i = 0; i < this.activeChunks.length; i++) {
+      const chunk = this.activeChunks[i];
 
       if (!chunk) continue;
 
@@ -1947,86 +1947,91 @@ class World {
     }
   }
 
-  createTrackMeshForSegment(segment, chunk) {
-    // Optimize track mesh creation based on segment type
-    switch (segment.type) {
-      case this.chunkTypes.STRAIGHT:
-        return this.createStraightTrackMesh(segment, chunk);
+  createTrackMeshForSegment(segmentType, chunk) {
+    // Create appropriate track mesh based on segment type
+    switch (segmentType) {
       case this.chunkTypes.LEFT_TURN:
+        this.createTurnTrackMesh(segmentType, chunk, -1); // -1 for left turn
+        break;
       case this.chunkTypes.RIGHT_TURN:
-        return this.createTurnTrackMesh(segment, chunk);
-      case this.chunkTypes.RAMP:
-        return this.createRampTrackMesh(segment, chunk);
+        this.createTurnTrackMesh(segmentType, chunk, 1); // 1 for right turn
+        break;
+      case this.chunkTypes.RAMP_UP:
+        this.createRampTrackMesh(segmentType, chunk, 1); // 1 for upward
+        break;
+      case this.chunkTypes.RAMP_DOWN:
+        this.createRampTrackMesh(segmentType, chunk, -1); // -1 for downward
+        break;
+      case this.chunkTypes.STRAIGHT:
       default:
-        console.error("Unknown segment type:", segment.type);
-        return this.createStraightTrackMesh(segment, chunk); // Default fallback
+        this.createStraightTrackMesh(segmentType, chunk);
+        break;
     }
+
+    // Add track columns and decorations
+    this.addTrackColumns(chunk, segmentType);
+
+    // Add lane indicators
+    this.addLaneMarkers(chunk, this.chunkSize, this.trackWidth);
+
+    return chunk;
   }
 
-  createStraightTrackMesh(segment, chunk) {
-    const length = segment.length;
-    const width = this.trackWidth;
+  createStraightTrackMesh(segmentType, chunk) {
+    // Create the basic track - a simple plane
+    const trackGeometry = new THREE.PlaneGeometry(
+      this.trackWidth,
+      this.chunkSize,
+      8,
+      32
+    );
+    trackGeometry.rotateX(-Math.PI / 2); // Rotate to be horizontal
 
-    // Create track group for this segment
-    const trackGroup = new THREE.Group();
-    trackGroup.position.copy(segment.startPosition);
-
-    // Create main track platform - optimize geometry
-    const trackGeometry = new THREE.BoxGeometry(width, 0.2, length);
     const trackMesh = new THREE.Mesh(trackGeometry, this.trackMaterial);
-    trackMesh.position.z = length / 2;
     trackMesh.receiveShadow = true;
-    trackGroup.add(trackMesh);
 
-    // Create left edge rail
-    const railGeometry = new THREE.BoxGeometry(0.3, 0.3, length);
-    const leftRail = new THREE.Mesh(railGeometry, this.trackEdgeMaterial);
-    leftRail.position.set(-width / 2, 0.15, length / 2);
-    leftRail.receiveShadow = true;
-    leftRail.castShadow = true;
-    trackGroup.add(leftRail);
+    // Position the track at the center of the chunk
+    trackMesh.position.set(0, 0, this.chunkSize / 2);
 
-    // Create right edge rail
-    const rightRail = new THREE.Mesh(railGeometry, this.trackEdgeMaterial);
-    rightRail.position.set(width / 2, 0.15, length / 2);
-    rightRail.receiveShadow = true;
-    rightRail.castShadow = true;
-    trackGroup.add(rightRail);
+    chunk.add(trackMesh);
 
-    // Add columns along the track
-    this.addTrackColumns(trackGroup, segment);
+    // Add edge glow
+    const leftEdgeGeometry = new THREE.BoxGeometry(0.2, 0.1, this.chunkSize);
+    const rightEdgeGeometry = new THREE.BoxGeometry(0.2, 0.1, this.chunkSize);
 
-    // Add temple decoration at the end of some segments (reduced frequency)
-    if (Math.random() < 0.3) {
-      const decoration = this.createSpaceDecoration();
-      const zPos = length - 5;
-      const xPos = (Math.random() - 0.5) * (width - 2);
-      decoration.position.set(xPos, 0.5, zPos);
-      trackGroup.add(decoration);
-    }
+    const edgeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x00ffff,
+      emissive: 0x00ffff,
+      emissiveIntensity: 0.5,
+    });
 
-    // Add the track to the chunk
-    chunk.add(trackGroup);
+    const leftEdge = new THREE.Mesh(leftEdgeGeometry, edgeMaterial);
+    leftEdge.position.set(-this.trackWidth / 2, 0.05, this.chunkSize / 2);
 
-    return trackGroup;
+    const rightEdge = new THREE.Mesh(rightEdgeGeometry, edgeMaterial);
+    rightEdge.position.set(this.trackWidth / 2, 0.05, this.chunkSize / 2);
+
+    chunk.add(leftEdge);
+    chunk.add(rightEdge);
+
+    return trackMesh;
   }
 
-  createTurnTrackMesh(segment, chunk) {
+  createTurnTrackMesh(segmentType, chunk, turnDirection) {
     const width = this.trackWidth;
-    const radius = segment.radius || 20;
-    const isLeft = segment.type === this.chunkTypes.LEFT_TURN;
+    const radius = this.trackWidth;
     const segments = 10; // Number of segments in the curve
 
     // Create track group
     const trackGroup = new THREE.Group();
-    trackGroup.position.copy(segment.startPosition);
+    trackGroup.position.copy(segmentType.startPosition);
 
     // Create a curve representing the path
     const curve = new THREE.CurvePath();
     const startPoint = new THREE.Vector3(0, 0, 0);
-    const endPoint = new THREE.Vector3(isLeft ? radius : -radius, 0, radius);
+    const endPoint = new THREE.Vector3(turnDirection * radius, 0, radius);
     const controlPoint = new THREE.Vector3(
-      isLeft ? radius / 2 : -radius / 2,
+      (turnDirection * radius) / 2,
       0,
       radius / 2
     );
@@ -2108,11 +2113,10 @@ class World {
       // Position column outside the curve
       const tangent = curve.getTangent(t).normalize();
       const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).multiplyScalar(
-        isLeft ? 1 : -1
+        turnDirection === 1 ? 1 : -1
       );
 
       const columnPos = point.clone().add(normal.multiplyScalar(width / 2 + 3));
-
       column.position.set(columnPos.x, -5, columnPos.z);
       trackGroup.add(column);
     }
@@ -2123,14 +2127,14 @@ class World {
     return trackGroup;
   }
 
-  createRampTrackMesh(segment, chunk) {
-    const length = segment.length;
+  createRampTrackMesh(segmentType, chunk, verticalDir) {
+    const length = this.chunkSize;
     const width = this.trackWidth;
     const height = 10; // Ramp height
 
     // Create track group
     const trackGroup = new THREE.Group();
-    trackGroup.position.copy(segment.startPosition);
+    
 
     // Create ramp geometry
     const rampShape = new THREE.Shape();
@@ -2398,90 +2402,114 @@ class World {
   }
 
   manageChunks(playerPosition) {
-    // Check if we need to add new chunks
-    if (this.activeChunks.length > 0) {
-      const lastChunk = this.activeChunks[this.activeChunks.length - 1];
-      const chunkEndZ = lastChunk.position.z + this.chunkSize;
+    if (!playerPosition || typeof playerPosition.z === "undefined") {
+      return;
+    }
 
-      // If last chunk's end is too close to player, add new chunk (positive Z direction)
-      if (chunkEndZ < playerPosition.z + this.visibleDistance) {
-        this.generateChunk(chunkEndZ);
+    // Calculate how many chunks we need ahead
+    const chunksAhead = 5; // Keep 5 chunks ahead of player
+    const chunksNeeded = chunksAhead;
+
+    // Find the furthest chunk's Z position
+    let furthestZ = playerPosition.z - 20; // Start behind player
+    for (let i = 0; i < this.activeChunks.length; i++) {
+      if (this.activeChunks[i] && this.activeChunks[i].position.z > furthestZ) {
+        furthestZ = this.activeChunks[i].position.z;
       }
     }
 
-    // Remove chunks that are behind the player
-    for (let i = this.activeChunks.length - 1; i >= 0; i--) {
+    // Generate new chunks if needed
+    while (furthestZ < playerPosition.z + chunksNeeded * this.chunkSize) {
+      const newChunkZ = furthestZ + this.chunkSize;
+      const segmentType = this.chooseNextSegmentType();
+
+      console.log(`Generating new chunk at Z: ${newChunkZ}`);
+
+      // Create a new chunk at the furthest position
+      const newChunk = this.generateChunkFromSegment(segmentType);
+      newChunk.position.z = newChunkZ;
+      furthestZ = newChunkZ;
+
+      // Add to active chunks
+      this.activeChunks.push(newChunk);
+
+      // Add to the scene
+      this.scene.add(newChunk);
+
+      // Populate with obstacles, crystals, etc.
+      this.populateChunk(newChunk);
+    }
+
+    // Remove chunks that are too far behind the player
+    const chunksToRemove = [];
+    for (let i = 0; i < this.activeChunks.length; i++) {
       const chunk = this.activeChunks[i];
-      // If chunk is too far behind the player, remove it (positive Z direction)
-      if (chunk.position.z + this.chunkSize < playerPosition.z - 20) {
-        this.removeChunk(i);
+      if (
+        chunk &&
+        playerPosition.z - (chunk.position.z + this.chunkSize) > 50
+      ) {
+        chunksToRemove.push(i);
       }
+    }
+
+    // Remove chunks in reverse order to avoid index shifting issues
+    for (let i = chunksToRemove.length - 1; i >= 0; i--) {
+      const index = chunksToRemove[i];
+      this.removeChunk(index);
     }
   }
 
-  // Remove a chunk and return its objects to the object pools
   removeChunk(index) {
+    if (index < 0 || index >= this.activeChunks.length) return;
+
     const chunk = this.activeChunks[index];
     if (!chunk) return;
 
-    console.log(
-      `Removing chunk at index ${index}, position Z: ${chunk.position.z}`
-    );
-
-    // Return all objects to their respective pools
-    if (chunk.userData.obstacles) {
-      chunk.userData.obstacles.forEach((obstacle) => {
-        if (obstacle.mesh) {
-          chunk.remove(obstacle.mesh);
-          this.returnToPool("obstacles", obstacle);
-        }
-      });
-    }
-
-    if (chunk.userData.crystals) {
-      chunk.userData.crystals.forEach((crystal) => {
-        if (crystal.mesh) {
-          chunk.remove(crystal.mesh);
-          this.returnToPool("crystals", crystal);
-        }
-      });
-    }
-
-    if (chunk.userData.powerups) {
-      chunk.userData.powerups.forEach((powerup) => {
-        if (powerup.mesh) {
-          chunk.remove(powerup.mesh);
-          this.returnToPool("powerups", powerup);
-        }
-      });
-    }
-
-    // Remove chunk from scene
+    // Remove from scene
     this.scene.remove(chunk);
 
-    // Remove from active chunks array
-    this.activeChunks.splice(index, 1);
-
-    // Add to inactive chunks pool if we're reusing them, or dispose otherwise
-    const chunkIndex = this.chunks.indexOf(chunk);
-    if (chunkIndex !== -1) {
-      this.chunks.splice(chunkIndex, 1);
-    }
-
-    // Dispose of geometries and materials to free memory
-    chunk.traverse((object) => {
-      if (object.geometry) {
-        object.geometry.dispose();
-      }
-
-      if (object.material) {
-        if (Array.isArray(object.material)) {
-          object.material.forEach((material) => material.dispose());
-        } else {
-          object.material.dispose();
+    // Recycle all resources
+    if (chunk.userData) {
+      // Return obstacles to pool
+      if (chunk.userData.obstacles) {
+        for (let i = 0; i < chunk.userData.obstacles.length; i++) {
+          const obstacle = chunk.userData.obstacles[i];
+          if (obstacle) {
+            // Return to pool if not already collected
+            if (!obstacle.collected) {
+              this.returnToPool("obstacles", obstacle);
+            }
+          }
         }
       }
-    });
+
+      // Return crystals to pool
+      if (chunk.userData.crystals) {
+        for (let i = 0; i < chunk.userData.crystals.length; i++) {
+          const crystal = chunk.userData.crystals[i];
+          if (crystal && !crystal.collected) {
+            this.returnToPool("crystals", crystal);
+          }
+        }
+      }
+
+      // Return powerups to pool
+      if (chunk.userData.powerups) {
+        for (let i = 0; i < chunk.userData.powerups.length; i++) {
+          const powerup = chunk.userData.powerups[i];
+          if (powerup && !powerup.collected) {
+            this.returnToPool("powerups", powerup);
+          }
+        }
+      }
+    }
+
+    // Remove the chunk from active chunks array
+    this.activeChunks.splice(index, 1);
+
+    console.log(
+      `Removed chunk at index ${index}, active chunks: ${this.activeChunks.length}`
+    );
   }
 
   updateObjects(delta) {
@@ -2637,33 +2665,20 @@ class World {
     animateSparks();
   }
 
-  checkCollisions(playerPosition) {
-    if (!playerPosition) {
-      return {
-        obstacleHit: false,
-        crystalsCollected: 0,
-        powerupCollected: false,
-        powerupType: null,
-      };
+  checkCollisions(playerHitbox) {
+    // Safely check if playerHitbox exists and has the required properties
+    if (
+      !playerHitbox ||
+      !playerHitbox.min ||
+      !playerHitbox.max ||
+      typeof playerHitbox.min.z === "undefined" ||
+      typeof playerHitbox.max.z === "undefined"
+    ) {
+      console.warn("Invalid player hitbox provided to world.checkCollisions");
+      return [];
     }
 
-    const result = {
-      obstacleHit: false,
-      crystalsCollected: 0,
-      powerupCollected: false,
-      powerupType: null,
-    };
-
-    // Get player bounds - adjust for new player size with better precision
-    const playerSize = { width: 0.7, height: 1.5, depth: 0.7 }; // Standard player size
-    const playerBounds = {
-      minX: playerPosition.x - playerSize.width / 2,
-      maxX: playerPosition.x + playerSize.width / 2,
-      minY: playerPosition.y,
-      maxY: playerPosition.y + playerSize.height,
-      minZ: playerPosition.z - playerSize.depth / 2,
-      maxZ: playerPosition.z + playerSize.depth / 2,
-    };
+    const collisions = [];
 
     // Check all active chunks
     for (let i = 0; i < this.activeChunks.length; i++) {
@@ -2674,8 +2689,8 @@ class World {
       // If chunk is too far behind or ahead, skip collision check for performance
       // Adjusted range check for positive Z direction
       if (
-        chunk.position.z < playerPosition.z - 20 ||
-        chunk.position.z > playerPosition.z + 20
+        chunk.position.z < playerHitbox.min.z - 20 ||
+        chunk.position.z > playerHitbox.max.z + 20
       ) {
         continue;
       }
@@ -2694,40 +2709,66 @@ class World {
             z: chunk.position.z + obstacle.position.z,
           };
 
-          // Get obstacle bounds (simple box collision)
-          const obstacleSize = obstacle.size || {
+          // Get obstacle bounds from userData or use default
+          let obstacleSize = obstacle.userData?.size || {
             width: 1,
             height: 1,
             depth: 1,
           };
-          const obstacleBounds = {
-            minX: obstacleWorldPos.x - obstacleSize.width / 2,
-            maxX: obstacleWorldPos.x + obstacleSize.width / 2,
-            minY: obstacleWorldPos.y,
-            maxY: obstacleWorldPos.y + obstacleSize.height,
-            minZ: obstacleWorldPos.z - obstacleSize.depth / 2,
-            maxZ: obstacleWorldPos.z + obstacleSize.depth / 2,
+
+          // Scale bounds based on visible mesh size if available
+          if (obstacle.geometry) {
+            obstacle.geometry.computeBoundingBox();
+            const box = obstacle.geometry.boundingBox;
+            obstacleSize = {
+              width: (box.max.x - box.min.x) * obstacle.scale.x,
+              height: (box.max.y - box.min.y) * obstacle.scale.y,
+              depth: (box.max.z - box.min.z) * obstacle.scale.z,
+            };
+          }
+
+          // Create obstacle hitbox
+          const obstacleHitbox = {
+            min: {
+              x: obstacleWorldPos.x - obstacleSize.width / 2,
+              y: obstacleWorldPos.y,
+              z: obstacleWorldPos.z - obstacleSize.depth / 2,
+            },
+            max: {
+              x: obstacleWorldPos.x + obstacleSize.width / 2,
+              y: obstacleWorldPos.y + obstacleSize.height,
+              z: obstacleWorldPos.z + obstacleSize.depth / 2,
+            },
           };
 
-          // AABB collision detection
+          // AABB collision detection between player hitbox and obstacle hitbox
           if (
-            playerBounds.maxX > obstacleBounds.minX &&
-            playerBounds.minX < obstacleBounds.maxX &&
-            playerBounds.maxY > obstacleBounds.minY &&
-            playerBounds.minY < obstacleBounds.maxY &&
-            playerBounds.maxZ > obstacleBounds.minZ &&
-            playerBounds.minZ < obstacleBounds.maxZ
+            playerHitbox.max.x > obstacleHitbox.min.x &&
+            playerHitbox.min.x < obstacleHitbox.max.x &&
+            playerHitbox.max.y > obstacleHitbox.min.y &&
+            playerHitbox.min.y < obstacleHitbox.max.y &&
+            playerHitbox.max.z > obstacleHitbox.min.z &&
+            playerHitbox.min.z < obstacleHitbox.max.z
           ) {
-            result.obstacleHit = true;
-            obstacle.collected = true; // Mark as hit so we don't collide multiple times
+            // Mark as hit to prevent multiple collisions
+            obstacle.collected = true;
 
-            // Create hit effect
+            // Create visual hit effect
             this.createHitEffect(obstacleWorldPos);
 
-            // Debug log
-            console.log("Obstacle collision at", obstacleWorldPos);
+            // Add collision to result array
+            collisions.push({
+              type: "obstacle",
+              object: obstacle,
+              position: obstacleWorldPos,
+              deadly: obstacle.userData?.deadly || false,
+            });
 
-            return result; // Return early on first obstacle hit
+            // Log collision for debugging
+            console.log(
+              "Obstacle collision:",
+              obstacle.name || "unnamed obstacle"
+            );
           }
         }
       }
@@ -2746,20 +2787,36 @@ class World {
             z: chunk.position.z + crystal.position.z,
           };
 
-          // Distance-based collision for crystals (sphere)
-          const dx = playerPosition.x - crystalWorldPos.x;
-          const dy = playerPosition.y - crystalWorldPos.y;
-          const dz = playerPosition.z - crystalWorldPos.z;
-          const distanceSquared = dx * dx + dy * dy + dz * dz;
+          // Use a sphere collision for crystals (more forgiving)
+          const crystalRadius = 0.7; // Slightly larger than visual size for better collection experience
+          const playerCenter = {
+            x: (playerHitbox.min.x + playerHitbox.max.x) / 2,
+            y: (playerHitbox.min.y + playerHitbox.max.y) / 2,
+            z: (playerHitbox.min.z + playerHitbox.max.z) / 2,
+          };
 
-          // If within collection radius (made slightly larger for better game feel)
-          if (distanceSquared < 3.0) {
+          // Calculate distance from player center to crystal
+          const dx = playerCenter.x - crystalWorldPos.x;
+          const dy = playerCenter.y - crystalWorldPos.y;
+          const dz = playerCenter.z - crystalWorldPos.z;
+          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+          if (
+            distance <
+            crystalRadius + Math.min(playerHitbox.width, playerHitbox.depth) / 2
+          ) {
+            // Mark as collected
             crystal.collected = true;
-            if (crystal.mesh) crystal.mesh.visible = false;
-            result.crystalsCollected++;
+
+            // Add to collisions array
+            collisions.push({
+              type: "crystal",
+              object: crystal,
+              position: crystalWorldPos,
+            });
 
             // Create collection effect
-            this.createCollectionEffect(crystalWorldPos);
+            this.createCollectionEffect(crystalWorldPos, "crystal");
           }
         }
       }
@@ -2778,28 +2835,45 @@ class World {
             z: chunk.position.z + powerup.position.z,
           };
 
-          // Distance-based collision for powerups (sphere)
-          const dx = playerPosition.x - powerupWorldPos.x;
-          const dy = playerPosition.y - powerupWorldPos.y;
-          const dz = playerPosition.z - powerupWorldPos.z;
-          const distanceSquared = dx * dx + dy * dy + dz * dz;
+          // Use a sphere collision for powerups (more forgiving)
+          const powerupRadius = 0.8; // Slightly larger than visual size
+          const playerCenter = {
+            x: (playerHitbox.min.x + playerHitbox.max.x) / 2,
+            y: (playerHitbox.min.y + playerHitbox.max.y) / 2,
+            z: (playerHitbox.min.z + playerHitbox.max.z) / 2,
+          };
 
-          // If within collection radius (made slightly larger for better game feel)
-          if (distanceSquared < 3.0) {
+          // Calculate distance
+          const dx = playerCenter.x - powerupWorldPos.x;
+          const dy = playerCenter.y - powerupWorldPos.y;
+          const dz = playerCenter.z - powerupWorldPos.z;
+          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+          if (
+            distance <
+            powerupRadius + Math.min(playerHitbox.width, playerHitbox.depth) / 2
+          ) {
+            // Mark as collected
             powerup.collected = true;
-            if (powerup.mesh) powerup.mesh.visible = false;
-            result.powerupCollected = true;
-            result.powerupType = powerup.type;
 
-            // Create collection effect
-            this.createCollectionEffect(powerupWorldPos, powerup.type);
-            break; // Only collect one powerup at a time
+            // Add to collisions array
+            collisions.push({
+              type: "powerup",
+              object: powerup,
+              position: powerupWorldPos,
+            });
+
+            // Create collection effect with powerup type color
+            this.createCollectionEffect(
+              powerupWorldPos,
+              powerup.userData?.powerupType || "powerup"
+            );
           }
         }
       }
     }
 
-    return result;
+    return collisions;
   }
 
   createHitEffect(position) {
@@ -2980,51 +3054,46 @@ class World {
   }
 
   chooseNextSegmentType() {
-    // Update difficulty based on track length
-    if (this.trackPathLength > this.difficultyThresholds.advanced) {
-      this.currentDifficulty = "hard";
-    } else if (this.trackPathLength > this.difficultyThresholds.intermediate) {
-      this.currentDifficulty = "medium";
-    }
+    // Get weights based on current difficulty
+    const weights = this.segmentDifficultyWeights;
 
-    // Get weights for current difficulty
-    const weights = this.segmentDifficultyWeights[this.currentDifficulty];
-
-    // Random selection based on weights
+    // Random value between 0 and 1
     const random = Math.random();
-    let cumulativeWeight = 0;
 
+    // Cumulative probability for weighted selection
+    let cumulativeProbability = 0;
+
+    // Check each segment type
     for (const type in weights) {
-      cumulativeWeight += weights[type];
-      if (random < cumulativeWeight) {
+      cumulativeProbability += weights[type];
+
+      // If random value is less than cumulative probability, select this type
+      if (random < cumulativeProbability) {
         return type;
       }
     }
 
-    // Default to straight if something goes wrong
+    // Default to straight segment if something goes wrong
     return this.chunkTypes.STRAIGHT;
   }
 
-  generateChunkFromSegment(segment) {
-    // Create a chunk based on the segment data
+  generateChunkFromSegment(segmentType) {
+    // Create new chunk group
     const chunk = new THREE.Group();
-    chunk.userData.segmentType = segment.type;
-    chunk.userData.obstacles = [];
-    chunk.userData.crystals = [];
-    chunk.userData.powerups = [];
 
-    // Set position to segment start
-    chunk.position.copy(segment.startPosition);
+    // Store segment type in userData
+    chunk.userData = {
+      segmentType: segmentType,
+      obstacles: [],
+      crystals: [],
+      powerups: [],
+    };
 
-    // Create track mesh
-    this.createTrackMeshForSegment(segment, chunk);
+    // Create track mesh based on segment type
+    this.createTrackMeshForSegment(segmentType, chunk);
 
-    // Add obstacles and collectibles
-    this.populateSegment(segment, chunk);
-
-    this.scene.add(chunk);
-    this.chunks.push(chunk);
-    this.activeChunks.push(chunk);
+    // Add decorations based on segment type
+    this.addTrackDecorations(chunk, segmentType);
 
     return chunk;
   }
@@ -3691,6 +3760,175 @@ class World {
     const pointLight2 = new THREE.PointLight(0xff3366, 1, 100);
     pointLight2.position.set(-20, 15, -20);
     this.scene.add(pointLight2);
+  }
+
+  // Function to mark an object as collected and hide it
+  collectItem(object) {
+    if (!object) return;
+
+    // Mark as collected
+    object.collected = true;
+
+    // Make it invisible
+    if (object.material) {
+      object.material.visible = false;
+    } else if (object.traverse) {
+      object.traverse((child) => {
+        if (child.material) {
+          child.material.visible = false;
+        }
+      });
+    }
+
+    // Disable any lights
+    object.traverse((child) => {
+      if (child.isLight) {
+        child.intensity = 0;
+      }
+    });
+
+    // Schedule for removal (will be cleaned up when chunk is recycled)
+    setTimeout(() => {
+      if (object.parent) {
+        object.parent.remove(object);
+      }
+    }, 2000);
+  }
+
+  setDifficulty(difficultyLevel, settings) {
+    console.log(`Setting world difficulty to ${difficultyLevel}`, settings);
+
+    // Store the current difficulty level
+    this.currentDifficulty = difficultyLevel;
+
+    // Update obstacle generation parameters
+    if (settings) {
+      this.obstacleFrequency = settings.obstacleFrequency || 0.2;
+      this.obstacleVariety = settings.obstacleVariety || 1;
+
+      // Update segment weights for difficulty
+      if (difficultyLevel === "medium") {
+        // Medium difficulty has more turns and some ramps
+        this.segmentDifficultyWeights = {
+          [this.chunkTypes.STRAIGHT]: 0.5,
+          [this.chunkTypes.LEFT_TURN]: 0.2,
+          [this.chunkTypes.RIGHT_TURN]: 0.2,
+          [this.chunkTypes.RAMP_UP]: 0.05,
+          [this.chunkTypes.RAMP_DOWN]: 0.05,
+        };
+      } else if (difficultyLevel === "hard") {
+        // Hard difficulty has more complex segments
+        this.segmentDifficultyWeights = {
+          [this.chunkTypes.STRAIGHT]: 0.3,
+          [this.chunkTypes.LEFT_TURN]: 0.25,
+          [this.chunkTypes.RIGHT_TURN]: 0.25,
+          [this.chunkTypes.RAMP_UP]: 0.1,
+          [this.chunkTypes.RAMP_DOWN]: 0.1,
+        };
+
+        // Increase number of obstacles per segment
+        this.maxObstaclesPerSegment = 4;
+      } else {
+        // Easy difficulty (default)
+        this.segmentDifficultyWeights = {
+          [this.chunkTypes.STRAIGHT]: 0.7,
+          [this.chunkTypes.LEFT_TURN]: 0.15,
+          [this.chunkTypes.RIGHT_TURN]: 0.15,
+          [this.chunkTypes.RAMP_UP]: 0,
+          [this.chunkTypes.RAMP_DOWN]: 0,
+        };
+
+        // Fewer obstacles per segment
+        this.maxObstaclesPerSegment = 2;
+      }
+    }
+
+    // Visual indicator for difficulty change
+    this.createDifficultyTransitionEffect();
+  }
+
+  createDifficultyTransitionEffect() {
+    // Create a wave effect that moves down the track
+    const particleCount = 200;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+
+    // Get the last player position to start the effect
+    const lastChunk = this.activeChunks[this.activeChunks.length - 1];
+    const effectStartZ = lastChunk ? lastChunk.position.z + 20 : 100;
+
+    // Create a wave of particles spreading across the track ahead
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * this.trackWidth;
+
+      positions[i3] = Math.cos(angle) * radius; // X
+      positions[i3 + 1] = 0.1 + Math.random() * 2; // Y
+      positions[i3 + 2] = effectStartZ + Math.random() * 50; // Z
+    }
+
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    // Color based on difficulty
+    let color;
+    if (this.currentDifficulty === "hard") {
+      color = new THREE.Color(0xff3333); // Red for hard
+    } else if (this.currentDifficulty === "medium") {
+      color = new THREE.Color(0xffaa00); // Orange for medium
+    } else {
+      color = new THREE.Color(0x00aaff); // Blue for easy
+    }
+
+    const material = new THREE.PointsMaterial({
+      color: color,
+      size: 0.5,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    this.scene.add(particles);
+
+    // Animate particles flowing along the track
+    const lifeDuration = 3; // seconds
+    let lifetime = 0;
+
+    const animateParticles = () => {
+      const delta = 1 / 60; // Assuming 60fps
+      lifetime += delta;
+
+      if (lifetime > lifeDuration) {
+        this.scene.remove(particles);
+        geometry.dispose();
+        material.dispose();
+        return;
+      }
+
+      // Move particles forward and pulse
+      const positions = geometry.attributes.position.array;
+      const progress = lifetime / lifeDuration;
+
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+
+        // Move forward
+        positions[i3 + 2] -= 0.5;
+
+        // Pulse Y based on sine wave
+        positions[i3 + 1] = 0.1 + Math.sin(progress * 10 + i) * 0.5;
+      }
+
+      geometry.attributes.position.needsUpdate = true;
+
+      // Pulse the opacity based on progress
+      material.opacity = 0.8 * (1 - progress);
+
+      requestAnimationFrame(animateParticles);
+    };
+
+    animateParticles();
   }
 }
 
