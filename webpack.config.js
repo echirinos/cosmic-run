@@ -24,7 +24,7 @@ module.exports = {
       "Access-Control-Allow-Origin": "*",
     },
     compress: true,
-    port: 8082,
+    port: 8083,
     hot: true,
   },
   module: {

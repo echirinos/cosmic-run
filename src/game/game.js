@@ -10,11 +10,11 @@ class Game {
     this.username = username || "Player";
     this.score = 0;
     this.crystals = 0;
-    this.gameSpeed = 0.2;
-    this.initialGameSpeed = 0.2;
-    this.maxGameSpeed = 0.8; // Maximum speed the game can reach
-    this.speedIncreaseRate = 0.0001; // How quickly the game speeds up
-    this.distanceMultiplier = 5; // How distance translates to score
+    this.gameSpeed = 0.2; // Reduced starting speed for better playability
+    this.initialGameSpeed = 0.2; // Reduced initial speed
+    this.maxGameSpeed = 0.6; // Reduced max speed
+    this.speedIncreaseRate = 0.00005; // Reduced speed increase rate
+    this.distanceMultiplier = 5;
     this.deviceCapabilities = deviceCapabilities || {
       highPerformance: false,
       touchScreen: false,
@@ -71,13 +71,14 @@ class Game {
 
     // Camera setup
     this.camera = new THREE.PerspectiveCamera(
-      75,
+      70, // Increased from 75 for wider field of view
       window.innerWidth / window.innerHeight,
       0.1,
       1000
     );
-    this.cameraOffset = new THREE.Vector3(0, 5, -12); // Position camera higher and further back
-    this.cameraLookOffset = new THREE.Vector3(0, 0, 20); // Look further ahead
+    // Position camera higher and further back for better obstacle visibility
+    this.cameraOffset = new THREE.Vector3(0, 12, -20); // Even higher and further back for better course vision
+    this.cameraLookOffset = new THREE.Vector3(0, 0, 50); // Look much further ahead to see more of the course
     this.cameraOriginalPos = null; // For camera shake
     this.cameraShakeId = null;
     this.cameraShakeAmount = 0;
@@ -139,8 +140,19 @@ class Game {
 
     // Initialize camera position
     this.cameraPosition = new THREE.Vector3();
-    this.cameraPosition.copy(this.player.getPosition()).add(this.cameraOffset);
+    // Use a fixed position to initialize the camera rather than basing it on player position
+    // This creates a more stable starting point
+    const initialPlayerPosition = this.player.getPosition();
+    this.cameraPosition.set(
+      0, // Keep centered horizontally
+      initialPlayerPosition.y + this.cameraOffset.y,
+      initialPlayerPosition.z + this.cameraOffset.z
+    );
     this.camera.position.copy(this.cameraPosition);
+    this.originalCameraPosition = this.cameraPosition.clone(); // Initialize the reference position
+
+    // Make camera look directly forward
+    this.camera.lookAt(new THREE.Vector3(0, 1, initialPlayerPosition.z + 20));
 
     // Start the animation loop
     this.startGameLoop();
@@ -166,18 +178,18 @@ class Game {
       }
     });
 
-    // Add ambient light with a blue/purple space hue
-    const ambientLight = new THREE.AmbientLight(0x223366, 0.7);
+    // Add ambient light with a blue/purple space hue - brighter to compensate for fewer lights
+    const ambientLight = new THREE.AmbientLight(0x223366, 1.0); // Increased from 0.7 to 1.0
     this.scene.add(ambientLight);
 
-    // Main directional light - from top right (sun-like)
+    // Single main directional light with shadows
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.3);
     directionalLight.position.set(5, 10, 7);
     directionalLight.castShadow = true;
 
-    // Better shadow settings for directional light
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
+    // Lower resolution shadows for better performance
+    directionalLight.shadow.mapSize.width = 1024; // Reduced from 2048
+    directionalLight.shadow.mapSize.height = 1024; // Reduced from 2048
     directionalLight.shadow.camera.near = 1;
     directionalLight.shadow.camera.far = 50;
     directionalLight.shadow.camera.left = -15;
@@ -188,69 +200,32 @@ class Game {
 
     this.scene.add(directionalLight);
 
-    // Add color accent light from top-left (contrast)
-    const accentLight = new THREE.DirectionalLight(0xff55aa, 0.6);
+    // Add color accent light from top-left (less intensive)
+    const accentLight = new THREE.DirectionalLight(0xff55aa, 0.4); // Reduced from 0.6
     accentLight.position.set(-5, 8, 2);
+    accentLight.castShadow = false; // No shadows for performance
     this.scene.add(accentLight);
 
-    // Add under-lighting from below (space glow effect)
-    const bottomLight = new THREE.PointLight(0x3366ff, 0.8, 30);
-    bottomLight.position.set(0, -3, -5);
-    this.scene.add(bottomLight);
-
-    // Add rim lighting from behind (dramatic silhouette)
-    const rimLight = new THREE.PointLight(0x00ffff, 0.6, 20);
-    rimLight.position.set(0, 5, -12);
-    this.scene.add(rimLight);
-
-    // Track edge lights - left and right
-    const leftEdgeLight = new THREE.PointLight(0x00ffaa, 1.0, 15);
-    leftEdgeLight.position.set(-5, 0.5, 0);
-    this.scene.add(leftEdgeLight);
-
-    const rightEdgeLight = new THREE.PointLight(0x00ffaa, 1.0, 15);
-    rightEdgeLight.position.set(5, 0.5, 0);
-    this.scene.add(rightEdgeLight);
-
-    // Moving track lights that follow player position
-    this.leftTrackLight = new THREE.PointLight(0x00aaff, 0.7, 10);
-    this.rightTrackLight = new THREE.PointLight(0x00aaff, 0.7, 10);
-    this.scene.add(this.leftTrackLight);
-    this.scene.add(this.rightTrackLight);
-
-    // Player spotlight that moves with the player - improved for better focus
+    // Player spotlight that moves with the player - simplified for performance
     this.playerLight = new THREE.SpotLight(
       0xffffff,
-      1.5,
-      30,
+      1.0, // Reduced from 1.5
+      20, // Reduced from 30
       Math.PI / 4.5,
-      0.3, // Sharper focus
-      1.5 // Faster falloff for better definition
+      0.5, // Increased from 0.3 for better performance
+      2.0 // Increased for better performance
     );
     this.playerLight.position.set(0, 6, -2);
     this.playerLight.target.position.set(0, 0, 5);
+    this.playerLight.castShadow = false; // Disable shadows for better performance
     this.scene.add(this.playerLight);
     this.scene.add(this.playerLight.target);
 
-    // Add volumetric light beam for dramatic effect
-    this.volumetricLight = new THREE.SpotLight(
-      0xaaddff,
-      0.8,
-      50,
-      Math.PI / 6,
-      0.5,
-      1
-    );
-    this.volumetricLight.position.set(0, 20, 0);
-    this.volumetricLight.target.position.set(0, 0, 10);
-    this.scene.add(this.volumetricLight);
-    this.scene.add(this.volumetricLight.target);
-
-    // Enable shadows for renderer
+    // Enable shadows but use a more performant shadow type
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.BasicShadowMap; // Changed from PCFSoftShadowMap for performance
 
-    console.log("Enhanced lighting setup complete");
+    console.log("Optimized lighting setup complete");
   }
 
   onWindowResize() {
@@ -298,32 +273,52 @@ class Game {
   }
 
   animate(time) {
-    if (!this.isRunning) return;
-
-    // Calculate delta time with a maximum value to prevent large jumps after tab switch
+    // Calculate delta time with aggressive capping for improved performance
     const currentTime = performance.now();
-    const deltaTime = Math.min(
-      (currentTime - this.lastTime) / 1000,
-      this.maxDeltaTime
-    );
+    const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.05); // Reduced from 0.1 to 0.05
     this.lastTime = currentTime;
+
+    // Skip frame if delta is too small to reduce CPU usage on high refresh rate displays
+    if (deltaTime < 0.0025) {
+      requestAnimationFrame(this.animate);
+      return;
+    }
 
     // Only process updates if the game is not paused
     if (!this.isPaused && !this.isGameOver) {
-      // Accumulate time for fixed timestep physics
-      this.physicsAccumulator += deltaTime;
+      // For low-performance devices, use simplified update
+      if (this.deviceCapabilities && !this.deviceCapabilities.highPerformance) {
+        // One direct update instead of accumulated physics steps
+        this.updatePhysics(deltaTime);
+      } else {
+        // Accumulate time for fixed timestep physics
+        this.physicsAccumulator += deltaTime;
 
-      // Update physics at a fixed rate for consistent simulation
-      while (this.physicsAccumulator >= this.fixedTimeStep) {
-        this.updatePhysics(this.fixedTimeStep);
-        this.physicsAccumulator -= this.fixedTimeStep;
+        // Limit accumulated physics steps to prevent spiral of death
+        const maxSteps = 3;
+        let stepsUsed = 0;
+
+        // Update physics at a fixed rate for consistent simulation
+        while (
+          this.physicsAccumulator >= this.fixedTimeStep &&
+          stepsUsed < maxSteps
+        ) {
+          this.updatePhysics(this.fixedTimeStep);
+          this.physicsAccumulator -= this.fixedTimeStep;
+          stepsUsed++;
+        }
+
+        // If we hit max steps, discard remaining accumulation to prevent lag
+        if (
+          stepsUsed >= maxSteps &&
+          this.physicsAccumulator > this.fixedTimeStep
+        ) {
+          this.physicsAccumulator = 0;
+        }
       }
-
-      // Update player light
-      this.updatePlayerLight();
     }
 
-    // Render the scene
+    // Render the scene - use direct renderer for better performance
     this.renderer.render(this.scene, this.camera);
 
     // Continue animation loop
@@ -338,41 +333,59 @@ class Game {
       this.isRunning = true;
     }
 
-    // Gradually increase game speed over time
+    // Calculate an optimal frame time to prevent spikes
+    const frameTime = Math.min(timeStep, 0.03);
+
+    // Gradually increase game speed - much slower for better stability
     if (this.gameSpeed < this.maxGameSpeed) {
-      this.gameSpeed += this.speedIncreaseRate * timeStep * 60;
+      this.gameSpeed += this.speedIncreaseRate * frameTime * 20;
     }
 
-    // Update distance traveled (for score calculation)
-    const distanceThisFrame = this.gameSpeed * timeStep * 60;
+    // Update distance traveled
+    const distanceThisFrame = this.gameSpeed * frameTime * 60;
     this.distanceTraveled += distanceThisFrame;
 
-    // Check for difficulty increase based on distance checkpoints
-    this.updateDifficulty();
-
-    // Update player physics
-    this.player.update(timeStep);
+    // Update player physics - most critical
+    this.player.update(frameTime);
 
     // Update world with current speed
-    this.world.update(timeStep, this.gameSpeed, this.player.getPosition());
+    this.world.update(frameTime, this.gameSpeed, this.player.getPosition());
 
-    // Handle collisions between player and world objects
+    // Handle collisions - critical
     this.handleCollisions();
 
-    // Update camera shake effect
-    this.updateCameraShake(timeStep);
+    // Update camera - critical
+    this.updateCamera(frameTime);
 
-    // Update camera position to follow player
-    this.updateCamera(timeStep);
-
-    // Update player light (if any)
-    this.updatePlayerLight();
-
-    // Update score based on distance
-    const scoreGain = Math.round(distanceThisFrame * this.distanceMultiplier);
-    if (scoreGain > 0) {
-      this.increaseScore(scoreGain);
+    // Less critical updates - only do these occasionally based on frame count
+    if (this.frameCount % 3 === 0) {
+      // Update score based on distance
+      const scoreGain = Math.round(distanceThisFrame * this.distanceMultiplier);
+      if (scoreGain > 0) {
+        this.increaseScore(scoreGain);
+      }
     }
+
+    // Very rarely check for difficulty updates
+    if (this.frameCount % 10 === 0) {
+      // Check for difficulty increase
+      this.updateDifficulty();
+    }
+
+    // Update camera shake and player light even less frequently
+    if (this.frameCount % 5 === 0) {
+      // Update camera shake effect (if active)
+      if (this.cameraShaking) {
+        this.updateCameraShake(frameTime);
+      }
+
+      // Update player light (if any)
+      this.updatePlayerLight();
+    }
+
+    // Increment frame counter
+    this.frameCount = (this.frameCount || 0) + 1;
+    if (this.frameCount > 1000) this.frameCount = 0;
   }
 
   updateDifficulty() {
@@ -471,18 +484,23 @@ class Game {
     }
   }
 
-  // Improved camera shake function
+  // Simplified camera shake function for better performance
   triggerCameraShake(intensity = 0.2, duration = 0.3) {
+    // Skip camera shake for low performance
+    if (this.deviceCapabilities && !this.deviceCapabilities.highPerformance) {
+      return;
+    }
+
     this.cameraShaking = true;
-    this.shakeIntensity = intensity;
-    this.shakeDuration = duration;
+    this.shakeIntensity = Math.min(intensity, 0.5); // Cap intensity
+    this.shakeDuration = Math.min(duration, 0.5); // Cap duration
     this.shakeElapsed = 0;
 
-    // Store original camera position if not already stored
+    // Store original camera position
     if (!this.originalCameraPosition) {
       this.originalCameraPosition = new THREE.Vector3();
+      this.originalCameraPosition.copy(this.camera.position);
     }
-    this.originalCameraPosition.copy(this.camera.position);
   }
 
   updateCameraShake(timeStep) {
@@ -498,59 +516,59 @@ class Game {
       return;
     }
 
-    // Calculate shake amount with easing out
-    const shakeProgress = this.shakeElapsed / this.shakeDuration;
-    const shakeAmount = this.shakeIntensity * (1 - Math.pow(shakeProgress, 2));
+    // Calculate shake amount with easing out - simpler calculation
+    const progress = this.shakeElapsed / this.shakeDuration;
+    const shakeAmount = this.shakeIntensity * (1 - progress);
 
-    // Apply random shake to camera
+    // Apply simplified shake to camera - only on x/y for better performance
     this.camera.position.set(
       this.originalCameraPosition.x + (Math.random() - 0.5) * shakeAmount,
       this.originalCameraPosition.y + (Math.random() - 0.5) * shakeAmount,
-      this.originalCameraPosition.z + (Math.random() - 0.5) * shakeAmount
+      this.originalCameraPosition.z
     );
   }
 
-  // Improved camera update
+  // Completely revised camera update for more stability
   updateCamera(delta) {
     if (!this.player || !this.camera) return;
 
     // Get player position
     const playerPosition = this.player.getPosition();
 
-    // Calculate target camera position - more dynamic follow with height adjustment
-    const targetCameraPos = new THREE.Vector3();
+    // Fixed camera position approach - much more stable
+    // Camera follows player only on Z-axis with minimal X offset
+    const targetCameraPos = new THREE.Vector3(
+      playerPosition.x * 0.1, // Only 10% of player's horizontal movement
+      this.cameraOffset.y, // Fixed height
+      playerPosition.z + this.cameraOffset.z // Follow on Z-axis
+    );
 
-    // Standard offset
-    targetCameraPos.copy(this.cameraOffset);
-
-    // Adjust for player lane position (smoother following)
-    const laneOffset = playerPosition.x * 0.5; // Half the player's lane offset
-    targetCameraPos.x += laneOffset;
-
-    // Adjust for player jumping (camera follows up slightly)
+    // Add minimal jump movement
     if (this.player.isJumping) {
-      targetCameraPos.y += playerPosition.y * 0.3; // Partial follow of jump height
+      targetCameraPos.y += playerPosition.y * 0.15; // Only 15% of jump height
     }
 
-    // Adjust target position relative to player
-    targetCameraPos.add(playerPosition);
-
-    // Smoothly interpolate current camera position to target
+    // Very slow interpolation for smooth, stable camera
     if (!this.cameraShaking) {
-      // Store position for shake reference
-      this.originalCameraPosition.lerp(targetCameraPos, delta * 2.5);
+      if (!this.originalCameraPosition) {
+        this.originalCameraPosition = new THREE.Vector3();
+        this.originalCameraPosition.copy(targetCameraPos);
+      } else {
+        // Super smooth interpolation - much slower for stability
+        this.originalCameraPosition.x +=
+          (targetCameraPos.x - this.originalCameraPosition.x) * (delta * 0.8);
+        this.originalCameraPosition.y +=
+          (targetCameraPos.y - this.originalCameraPosition.y) * (delta * 0.8);
+        this.originalCameraPosition.z +=
+          (targetCameraPos.z - this.originalCameraPosition.z) * (delta * 1.5);
+      }
       this.camera.position.copy(this.originalCameraPosition);
     }
 
-    // Calculate look target - look ahead of player
-    const lookTarget = new THREE.Vector3(
-      playerPosition.x * 0.2, // Slight offset based on lane
-      playerPosition.y * 0.1 + 1, // Look slightly up
-      playerPosition.z + 10 // Look ahead
+    // Always look straight ahead at a fixed point
+    this.camera.lookAt(
+      new THREE.Vector3(0, playerPosition.y * 0.1 + 1, playerPosition.z + 15)
     );
-
-    // Update camera to look at target
-    this.camera.lookAt(lookTarget);
   }
 
   // Improved end game function with proper death sequence
@@ -699,46 +717,13 @@ class Game {
     }, duration * 1000);
   }
 
-  // Improved animate function with post-processing support
-  animate(time) {
-    // Calculate delta time
-    const delta = this.clock.getDelta();
-
-    // Update physics with fixed time step
-    this.updatePhysics(delta);
-
-    // Only render if the game is running
-    if (!this.isPaused) {
-      // Use post-processing composer if available
-      if (this.composer) {
-        this.composer.render();
-      } else {
-        // Fallback to standard renderer
-        this.renderer.render(this.scene, this.camera);
-      }
-    }
-
-    // Update FPS counter
-    this.fpsCounter.frames++;
-    if (time - this.fpsCounter.lastTime > 1000) {
-      this.fpsCounter.fps = Math.round(
-        (this.fpsCounter.frames * 1000) / (time - this.fpsCounter.lastTime)
-      );
-      this.fpsCounter.lastTime = time;
-      this.fpsCounter.frames = 0;
-
-      // Update UI
-      const fpsDisplay = document.getElementById("fps-display");
-      if (fpsDisplay) {
-        fpsDisplay.textContent = `FPS: ${this.fpsCounter.fps}`;
-      }
-    }
-
-    // Continue animation loop
-    requestAnimationFrame(this.animate.bind(this));
-  }
-
   setupPostProcessing() {
+    // Skip post-processing completely for better performance
+    console.log("Post-processing disabled for better performance");
+    this.composer = null;
+    return;
+
+    /* Original code disabled for performance
     // Skip for low performance devices
     if (
       this.deviceCapabilities &&
@@ -795,6 +780,7 @@ class Game {
       console.warn("Could not initialize post-processing:", error);
       this.composer = null;
     }
+    */
   }
 
   setupUI() {
@@ -871,60 +857,16 @@ class Game {
     document.getElementById("game-container").appendChild(leaderboardContainer);
   }
 
-  // Update player light to follow the player
+  // Update player light to follow the player - simplified for performance
   updatePlayerLight() {
     if (!this.player) return;
 
     const pos = this.player.getPosition();
 
-    // Main player spotlight follows player from behind and above
+    // Update only the main player spotlight for performance
     if (this.playerLight) {
       this.playerLight.position.set(pos.x, pos.y + 6, pos.z - 3);
       this.playerLight.target.position.set(pos.x, pos.y, pos.z + 8);
-    }
-
-    // Update track edge lights to follow player position
-    if (this.leftTrackLight) {
-      this.leftTrackLight.position.set(pos.x - 4, pos.y + 0.5, pos.z);
-    }
-
-    if (this.rightTrackLight) {
-      this.rightTrackLight.position.set(pos.x + 4, pos.y + 0.5, pos.z);
-    }
-
-    // Update volumetric light to follow player loosely
-    if (this.volumetricLight) {
-      // Move more slowly for a dramatic effect
-      const targetX = pos.x * 0.3; // Dampen motion for smoother effect
-      const currentX = this.volumetricLight.position.x;
-      this.volumetricLight.position.x += (targetX - currentX) * 0.05;
-      this.volumetricLight.position.z = pos.z - 5;
-      this.volumetricLight.target.position.set(pos.x, pos.y, pos.z + 15);
-    }
-
-    // Optional: Add light color based on player's movement state
-    if (this.player.isJumping && this.leftTrackLight && this.rightTrackLight) {
-      // Change colors during jumps for dramatic effect
-      this.leftTrackLight.color.set(0x00ffff);
-      this.rightTrackLight.color.set(0x00ffff);
-      this.leftTrackLight.intensity = 1.0;
-      this.rightTrackLight.intensity = 1.0;
-    } else if (
-      this.player.isSliding &&
-      this.leftTrackLight &&
-      this.rightTrackLight
-    ) {
-      // Orange glow during slides
-      this.leftTrackLight.color.set(0xff6600);
-      this.rightTrackLight.color.set(0xff6600);
-      this.leftTrackLight.intensity = 1.2;
-      this.rightTrackLight.intensity = 1.2;
-    } else if (this.leftTrackLight && this.rightTrackLight) {
-      // Reset to default color
-      this.leftTrackLight.color.set(0x00aaff);
-      this.rightTrackLight.color.set(0x00aaff);
-      this.leftTrackLight.intensity = 0.7;
-      this.rightTrackLight.intensity = 0.7;
     }
   }
 
@@ -1074,13 +1016,13 @@ class Game {
 
   moveLeft() {
     if (!this.isGameOver && !this.isPaused) {
-      this.player.moveLeft();
+      this.player.moveRight();
     }
   }
 
   moveRight() {
     if (!this.isGameOver && !this.isPaused) {
-      this.player.moveRight();
+      this.player.moveLeft();
     }
   }
 
