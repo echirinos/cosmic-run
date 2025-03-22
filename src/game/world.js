@@ -308,6 +308,9 @@ class World {
     this.frameCount = 0;
     this.frameTime = 0;
 
+    console.log("World initialized with track width:", this.trackWidth);
+    console.log("Lane setup complete for 4 lanes");
+
     console.log("World initialized successfully");
   }
 
@@ -375,52 +378,25 @@ class World {
   }
 
   createTrackMaterials() {
-    // Create a MUCH more visible track material
-    this.trackMaterial = new THREE.MeshStandardMaterial({
+    // Create a dark space-themed track material
+    this.trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x111122, // Deep space blue/black
+      transparent: false,
+      opacity: 1.0,
+      visible: true,
+    });
+
+    // Lane separator material - glowing blue lines
+    this.laneMaterial = new THREE.MeshBasicMaterial({
       color: 0x00aaff, // Bright blue
-      roughness: 0.2,
-      metalness: 0.6,
-      emissive: 0x0066ff,
-      emissiveIntensity: 0.5, // Stronger glow
-      transparent: false,
-      opacity: 1.0,
+      transparent: true,
+      opacity: 0.8,
       visible: true,
     });
 
-    // Edge glow material - brighter blue
-    this.trackEdgeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x00ffff,
-      roughness: 0.2,
-      metalness: 0.8,
-      emissive: 0x0088ff,
-      emissiveIntensity: 0.8,
-      envMapIntensity: 1.5,
-      transparent: false,
-      opacity: 1.0,
-      visible: true,
-    });
-
-    // Crystal lane material with stronger glow
-    this.crystalLaneMaterial = new THREE.MeshStandardMaterial({
-      color: 0x66ffff,
-      roughness: 0.3,
-      metalness: 0.7,
-      emissive: 0x00ffff,
-      emissiveIntensity: 0.5,
-      envMapIntensity: 1.5,
-      transparent: false,
-      opacity: 1.0,
-      visible: true,
-    });
-
-    // Obstacle warning material - bright red
-    this.obstacleLaneMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff3333,
-      roughness: 0.3,
-      metalness: 0.7,
-      emissive: 0xff0000,
-      emissiveIntensity: 0.5,
-      envMapIntensity: 1.5,
+    // Edge material - vibrant nebula pink
+    this.edgeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff00aa, // Pink
       transparent: false,
       opacity: 1.0,
       visible: true,
@@ -1333,52 +1309,93 @@ class World {
   }
 
   generateChunkFromSegment(segment) {
-    // Create chunk container
-    const chunk = new THREE.Group();
-
-    // Create a basic bright blue floor that's very large
-    const floorGeometry = new THREE.PlaneGeometry(20, 100);
-    const floorMaterial = new THREE.MeshBasicMaterial({
-      color: 0x0088ff,
-      side: THREE.DoubleSide,
-      transparent: false,
-      opacity: 1.0,
-    });
-
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.rotation.x = Math.PI / 2; // Make horizontal
-    floor.position.y = -0.5; // Position below player
-
-    // Add glowing edges
-    const edgeGeometry = new THREE.BoxGeometry(1, 0.5, 100);
-    const edgeMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff00ff,
-      emissive: 0xff00ff,
-      emissiveIntensity: 1.0,
-    });
-
-    const leftEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
-    leftEdge.position.set(-10, 0, 0);
-
-    const rightEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
-    rightEdge.position.set(10, 0, 0);
-
-    // Add everything to the chunk
-    chunk.add(floor);
-    chunk.add(leftEdge);
-    chunk.add(rightEdge);
-
-    // Position the chunk
-    if (segment) {
-      chunk.position.copy(segment.startPosition);
-    } else {
-      chunk.position.set(0, 0, 0);
+    if (!segment) {
+      console.error("Invalid segment passed to generateChunkFromSegment");
+      return null;
     }
 
-    // IMPORTANT: Add to scene
+    // Create chunk container
+    const chunk = new THREE.Group();
+    chunk.segment = segment;
+    chunk.index = segment.index || 0;
+
+    // Initialize arrays for objects
+    chunk.obstacles = [];
+    chunk.crystals = [];
+    chunk.powerups = [];
+    chunk.decorations = [];
+
+    // Set position based on segment start
+    chunk.position.copy(segment.startPosition);
+
+    // Create the track segment with space theme
+    const trackGeometry = new THREE.PlaneGeometry(
+      this.trackWidth * 1.5, // Make it wider for 4 lanes
+      segment.length,
+      4,
+      Math.ceil(segment.length / 2)
+    );
+
+    // Main track - deep space black with star field texture
+    const track = new THREE.Mesh(trackGeometry, this.trackMaterial);
+    track.rotation.x = -Math.PI / 2; // Lay flat
+    track.position.y = -0.1; // Slightly below player feet
+    track.position.z = -segment.length / 2; // Center the track in the chunk
+
+    // Add track to chunk
+    chunk.add(track);
+
+    // Set track width for 4 lanes
+    this.trackWidth = 12; // Wider track
+    const laneWidth = this.trackWidth / 4; // 4 lanes
+
+    // Add 5 lane separators (for 4 lanes)
+    for (let i = -2; i <= 2; i++) {
+      if (i === -2 || i === 2) {
+        // Track edges - pink glowing barriers
+        const edgeGeometry = new THREE.BoxGeometry(0.5, 0.5, segment.length);
+        const edge = new THREE.Mesh(edgeGeometry, this.edgeMaterial);
+        edge.position.set(i * laneWidth, 0.1, -segment.length / 2);
+        chunk.add(edge);
+      } else {
+        // Lane separators - thin blue lines
+        const lineGeometry = new THREE.BoxGeometry(0.1, 0.1, segment.length);
+        const line = new THREE.Mesh(lineGeometry, this.laneMaterial);
+        line.position.set(i * laneWidth, 0.05, -segment.length / 2);
+        chunk.add(line);
+      }
+    }
+
+    // Add some star effects on the track
+    for (let i = 0; i < 20; i++) {
+      const starGeometry = new THREE.CircleGeometry(
+        0.05 + Math.random() * 0.05,
+        4
+      );
+      const starMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.5 + Math.random() * 0.5,
+      });
+
+      const star = new THREE.Mesh(starGeometry, starMaterial);
+      star.rotation.x = -Math.PI / 2; // Lay flat on track
+      star.position.set(
+        (Math.random() - 0.5) * this.trackWidth,
+        0,
+        -Math.random() * segment.length
+      );
+      chunk.add(star);
+    }
+
+    // CRITICAL: Add to scene and active chunks
     this.scene.add(chunk);
 
-    // Store in active chunks
+    // Initialize active chunks array if it doesn't exist
+    if (!this.activeChunks) {
+      this.activeChunks = [];
+    }
+
     this.activeChunks.push(chunk);
 
     return chunk;
@@ -1521,126 +1538,202 @@ class World {
     // Skip first chunk to give player time to adjust
     if (chunk.index === 0) return;
 
-    // Determine difficulty-based parameters
-    let difficulty;
-    if (chunk.index < 5) difficulty = "easy";
-    else if (chunk.index < 15) difficulty = "medium";
-    else difficulty = "hard";
+    console.log("Populating chunk with obstacles...");
 
-    // Increase obstacle frequency based on difficulty
-    const obstacleFrequency = {
-      easy: 0.3, // Increased from previous values
-      medium: 0.5,
-      hard: 0.7,
-    }[difficulty];
+    // Increase obstacle frequency
+    const obstacleFrequency = 0.5; // Higher value = more obstacles
 
-    // Place objects along the chunk
-    const chunkLength = chunk.segment.length;
-    const numLanes = 3;
-    const laneWidth = this.trackWidth / numLanes;
+    // Get chunk length and lane info
+    const chunkLength = chunk.segment ? chunk.segment.length : 20;
+    const numLanes = 4; // 4 lanes
 
-    // Add obstacles and collectibles
-    // Use more consistent spacing with variation
-    const zSpacing = 5; // Space between placement points
+    // IMPORTANT: Use correct lane positions for 4 lanes
+    const lanePositions = [-1.5, -0.5, 0.5, 1.5];
 
-    for (let z = 5; z < chunkLength - 5; z += zSpacing) {
-      // Random offset for more natural placement
+    // Add obstacles at regular intervals
+    const zSpacing = 15; // Space between obstacle groups
+
+    for (let z = 15; z < chunkLength - 5; z += zSpacing) {
+      // Add some randomness to position
       const zOffset = (Math.random() - 0.5) * 3;
       const actualZ = z + zOffset;
 
-      // Decide if we should place an obstacle at this z-position
+      // ALWAYS place something at this z-position (obstacle or crystal)
       if (Math.random() < obstacleFrequency) {
-        // Select which lanes to obstruct
+        // Choose a pattern
         const pattern = Math.random();
 
-        // Different obstacle patterns based on difficulty
-        if (difficulty === "easy") {
-          // Easy: Single lane obstacles
-          const lane = Math.floor(Math.random() * numLanes) - 1;
-          const obstacleType = Math.floor(Math.random() * 4); // More obstacle variety
-          this.addObstacle(chunk, lane, actualZ, obstacleType);
-        } else if (difficulty === "medium") {
-          if (pattern < 0.7) {
-            // Medium: Single or adjacent lane obstacles
-            const lane = Math.floor(Math.random() * numLanes) - 1;
-            const obstacleType = Math.floor(Math.random() * 4);
-            this.addObstacle(chunk, lane, actualZ, obstacleType);
-
-            // 30% chance to add adjacent obstacle
-            if (Math.random() < 0.3) {
-              const adjacentLane = lane + (Math.random() < 0.5 ? 1 : -1);
-              if (adjacentLane >= -1 && adjacentLane <= 1) {
-                this.addObstacle(chunk, adjacentLane, actualZ, obstacleType);
-              }
-            }
-          } else {
-            // Create a gap with only one lane open
-            const openLane = Math.floor(Math.random() * numLanes) - 1;
-            for (let l = -1; l <= 1; l++) {
-              if (l !== openLane) {
-                const obstacleType = Math.floor(Math.random() * 4);
-                this.addObstacle(chunk, l, actualZ, obstacleType);
-              }
-            }
-          }
+        if (pattern < 0.4) {
+          // Single lane obstacle - pick a random lane
+          const laneIndex = Math.floor(Math.random() * 4);
+          const lane = lanePositions[laneIndex];
+          this.addSpaceObstacle(chunk, lane, actualZ);
+          console.log(`Added single obstacle at lane ${lane}, z=${actualZ}`);
+        } else if (pattern < 0.7) {
+          // Two adjacent lanes blocked
+          const startLaneIndex = Math.floor(Math.random() * 3); // 0, 1, or 2
+          this.addSpaceObstacle(chunk, lanePositions[startLaneIndex], actualZ);
+          this.addSpaceObstacle(
+            chunk,
+            lanePositions[startLaneIndex + 1],
+            actualZ
+          );
+          console.log(
+            `Added double obstacle at lanes ${
+              lanePositions[startLaneIndex]
+            } and ${lanePositions[startLaneIndex + 1]}, z=${actualZ}`
+          );
         } else {
-          // Hard
-          if (pattern < 0.6) {
-            // Hard: More complex patterns
-            const openLane = Math.floor(Math.random() * numLanes) - 1;
-            for (let l = -1; l <= 1; l++) {
-              if (l !== openLane) {
-                const obstacleType = Math.floor(Math.random() * 4);
-                this.addObstacle(chunk, l, actualZ, obstacleType);
-              }
-            }
-          } else if (pattern < 0.85) {
-            // Create a zigzag pattern over multiple z positions
-            const startLane = Math.random() < 0.5 ? -1 : 1;
-            this.addObstacle(
-              chunk,
-              startLane,
-              actualZ,
-              Math.floor(Math.random() * 4)
-            );
-            this.addObstacle(
-              chunk,
-              0,
-              actualZ + 2.5,
-              Math.floor(Math.random() * 4)
-            );
-            this.addObstacle(
-              chunk,
-              -startLane,
-              actualZ + 5,
-              Math.floor(Math.random() * 4)
-            );
-          } else {
-            // Rarely, place moving obstacles (indicated by a special type)
-            for (let l = -1; l <= 1; l++) {
-              if (Math.random() < 0.3) {
-                this.addObstacle(chunk, l, actualZ, 4); // Type 4 could be a moving obstacle
-              }
+          // Three lanes blocked with one lane open
+          const openLaneIndex = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
+
+          for (let i = 0; i < 4; i++) {
+            if (i !== openLaneIndex) {
+              this.addSpaceObstacle(chunk, lanePositions[i], actualZ);
             }
           }
+          console.log(
+            `Added three obstacles with open lane at ${lanePositions[openLaneIndex]}, z=${actualZ}`
+          );
         }
       }
-      // Add crystals in locations where there are no obstacles
-      else if (Math.random() < 0.3) {
-        // Slightly increased crystal frequency
-        const lane = Math.floor(Math.random() * numLanes) - 1;
-        // Check if there's no obstacle at this position
-        const hasObstacle = chunk.obstacles.some(
-          (o) => Math.abs(o.position.z - actualZ) < 2 && o.lane === lane
-        );
+      // Add crystals in some gaps
+      else {
+        // Put crystals in 1-2 random lanes
+        const crystalCount = 1 + Math.floor(Math.random() * 2);
+        const usedLanes = [];
 
-        if (!hasObstacle) {
+        for (let i = 0; i < crystalCount; i++) {
+          let laneIndex;
+          do {
+            laneIndex = Math.floor(Math.random() * 4);
+          } while (usedLanes.includes(laneIndex));
+
+          usedLanes.push(laneIndex);
+          const lane = lanePositions[laneIndex];
           this.addCrystal(chunk, lane, actualZ);
+          console.log(`Added crystal at lane ${lane}, z=${actualZ}`);
         }
       }
     }
 
     return chunk;
+  }
+
+  // Simple deadly obstacle creator
+  addSimpleObstacle(chunk, lane, z) {
+    // Determine lane position
+    const x = lane * (this.trackWidth / 3);
+
+    // Create a simple deadly obstacle
+    const obstacle = new THREE.Group();
+
+    // Create a red cube obstacle
+    const obstacleGeometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+    const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const cube = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
+
+    // Position above track
+    cube.position.y = 0.75;
+    obstacle.add(cube);
+
+    // Add a glow effect
+    const glowGeometry = new THREE.SphereGeometry(1, 16, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff3333,
+      transparent: true,
+      opacity: 0.3,
+    });
+
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    obstacle.add(glow);
+
+    // Position obstacle
+    obstacle.position.set(x, 0, z);
+
+    // Tag as deadly obstacle
+    obstacle.userData = {
+      type: "obstacle",
+      deadly: true,
+      lane: lane,
+    };
+
+    // Add to chunk
+    chunk.add(obstacle);
+
+    // Store in obstacles array
+    if (!chunk.obstacles) {
+      chunk.obstacles = [];
+    }
+    chunk.obstacles.push(obstacle);
+
+    return obstacle;
+  }
+
+  // Crystal collectible for points
+  addCrystal(chunk, lane, z) {
+    // Use correct lane positioning for 4 lanes
+    const laneWidth = this.trackWidth / 4;
+    const x = lane * laneWidth;
+
+    // Create a space crystal
+    const crystalGroup = new THREE.Group();
+
+    const crystalGeometry = new THREE.OctahedronGeometry(0.4, 0);
+    const crystalMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ffff, // Cyan
+    });
+
+    const crystal = new THREE.Mesh(crystalGeometry, crystalMaterial);
+    crystal.position.y = 1.0; // Float above ground
+    crystalGroup.add(crystal);
+
+    // Add a cyan glow
+    const glowGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.4,
+    });
+
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    crystalGroup.add(glow);
+
+    // Add floating and rotating animation
+    crystalGroup.userData.animate = true;
+    crystalGroup.userData.rotationSpeed = 0.02;
+    crystalGroup.userData.floatHeight = 0.1;
+    crystalGroup.userData.floatSpeed = 0.003;
+    crystalGroup.userData.baseHeight = 1.0;
+    crystalGroup.userData.timeOffset = Math.random() * Math.PI * 2;
+
+    // Position crystal
+    crystalGroup.position.set(x, 0, z);
+
+    // Tag as collectible
+    crystalGroup.userData = {
+      type: "crystal",
+      value: 1,
+      lane: lane,
+      animate: true,
+      rotationSpeed: 0.02,
+      floatHeight: 0.1,
+      floatSpeed: 0.003,
+      baseHeight: 1.0,
+      timeOffset: Math.random() * Math.PI * 2,
+    };
+
+    // Add to chunk
+    chunk.add(crystalGroup);
+
+    // Store in crystals array
+    if (!chunk.crystals) {
+      chunk.crystals = [];
+    }
+
+    chunk.crystals.push(crystalGroup);
+
+    return crystalGroup;
   }
 
   // Add the missing addObstacle method
@@ -1896,27 +1989,41 @@ class World {
       return;
     }
 
-    // Update objects only for nearby chunks to improve performance
+    // Update crystal animations
+    this.updateCrystalAnimations(delta);
+  }
+
+  // Add method to animate crystals
+  updateCrystalAnimations(delta) {
+    // Loop through all active chunks
     for (let i = 0; i < this.activeChunks.length; i++) {
       const chunk = this.activeChunks[i];
-      if (!chunk) continue;
+      if (!chunk || !chunk.crystals) continue;
 
-      // Only process chunks near the player
-      if (
-        chunk.position &&
-        Math.abs(chunk.position.z - playerPosition.z) < 50
-      ) {
-        // Make sure the chunk is visible
-        chunk.visible = true;
+      // Animate all crystals in the chunk
+      for (let j = 0; j < chunk.crystals.length; j++) {
+        const crystal = chunk.crystals[j];
+        if (
+          !crystal ||
+          !crystal.userData ||
+          !crystal.userData.animate ||
+          crystal.collected
+        )
+          continue;
 
-        // Simple update for any moving elements
-        if (chunk.obstacles) {
-          chunk.obstacles.forEach((obstacle) => {
-            if (obstacle && obstacle.update) {
-              obstacle.update(delta);
-            }
-          });
-        }
+        // Rotate crystal
+        crystal.rotation.y += crystal.userData.rotationSpeed || 0.02;
+
+        // Float up and down
+        const time =
+          Date.now() * (crystal.userData.floatSpeed || 0.003) +
+          (crystal.userData.timeOffset || 0);
+        const height =
+          (crystal.userData.baseHeight || 1.0) +
+          Math.sin(time) * (crystal.userData.floatHeight || 0.1);
+
+        // Update crystal Y position for floating effect
+        crystal.position.y = height;
       }
     }
   }
@@ -1967,7 +2074,7 @@ class World {
       if (chunk.obstacles) {
         for (let j = 0; j < chunk.obstacles.length; j++) {
           const obstacle = chunk.obstacles[j];
-          if (!obstacle || !obstacle.position) continue;
+          if (!obstacle || !obstacle.position || obstacle.collected) continue;
 
           // Simple bounding box check
           const distance = new THREE.Vector3(
@@ -1981,6 +2088,31 @@ class World {
             collisions.push({
               type: "obstacle",
               object: obstacle,
+              deadly: obstacle.userData.deadly || true, // Our simple obstacles are always deadly
+            });
+          }
+        }
+      }
+
+      // Check crystals
+      if (chunk.crystals) {
+        for (let j = 0; j < chunk.crystals.length; j++) {
+          const crystal = chunk.crystals[j];
+          if (!crystal || !crystal.position || crystal.collected) continue;
+
+          // Simple bounding box check
+          const distance = new THREE.Vector3(
+            playerHitbox.min.x + (playerHitbox.max.x - playerHitbox.min.x) / 2,
+            playerHitbox.min.y + (playerHitbox.max.y - playerHitbox.min.y) / 2,
+            playerHitbox.min.z + (playerHitbox.max.z - playerHitbox.min.z) / 2
+          ).distanceTo(crystal.position);
+
+          // If close enough, consider it a collection
+          if (distance < 1.2) {
+            collisions.push({
+              type: "crystal",
+              object: crystal,
+              value: crystal.userData.value || 1,
             });
           }
         }
@@ -1996,6 +2128,9 @@ class World {
     // Make the item invisible
     item.visible = false;
 
+    // Mark the item as collected
+    item.collected = true;
+
     // Find which chunk this item belongs to
     for (let i = 0; i < this.activeChunks.length; i++) {
       const chunk = this.activeChunks[i];
@@ -2005,22 +2140,14 @@ class World {
       if (chunk.crystals) {
         const index = chunk.crystals.indexOf(item);
         if (index !== -1) {
-          // Mark as collected but don't remove from array to avoid index issues
+          // Mark as collected
           chunk.crystals[index].collected = true;
-          return;
-        }
-      }
-
-      // Check powerups
-      if (chunk.powerups) {
-        const index = chunk.powerups.indexOf(item);
-        if (index !== -1) {
-          // Mark as collected but don't remove from array to avoid index issues
-          chunk.powerups[index].collected = true;
-          return;
+          return item.userData.value || 1; // Return the value of the crystal
         }
       }
     }
+
+    return 0;
   }
 
   updateTrackIndicators(playerPosition) {
@@ -2083,6 +2210,92 @@ class World {
     this.scene.add(axisHelper);
 
     console.log("Debug track visualization created");
+  }
+
+  // Space-themed obstacle creator
+  addSpaceObstacle(chunk, lane, z) {
+    // Create a space-themed deadly obstacle
+    const obstacle = new THREE.Group();
+
+    // Choose a random type of space obstacle
+    const obstacleType = Math.floor(Math.random() * 3);
+
+    let obstacleMesh;
+
+    switch (obstacleType) {
+      case 0: // Asteroid
+        const asteroidGeometry = new THREE.DodecahedronGeometry(0.8, 1);
+        const asteroidMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff3333, // Red
+        });
+        obstacleMesh = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
+        obstacleMesh.position.y = 0.8;
+        obstacleMesh.rotation.set(
+          Math.random() * Math.PI,
+          Math.random() * Math.PI,
+          Math.random() * Math.PI
+        );
+        break;
+
+      case 1: // Energy barrier
+        const barrierGeometry = new THREE.BoxGeometry(2, 1.8, 0.2);
+        const barrierMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff3333, // Red
+          transparent: true,
+          opacity: 0.8,
+        });
+        obstacleMesh = new THREE.Mesh(barrierGeometry, barrierMaterial);
+        obstacleMesh.position.y = 0.9; // Mid-height
+        break;
+
+      case 2: // Alien structure
+        const structureGeometry = new THREE.ConeGeometry(0.8, 1.6, 5);
+        const structureMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff3333, // Red
+        });
+        obstacleMesh = new THREE.Mesh(structureGeometry, structureMaterial);
+        obstacleMesh.position.y = 0.8;
+        obstacleMesh.rotation.x = Math.PI; // Point up
+        break;
+    }
+
+    // IMPORTANT: Add the mesh to the obstacle group
+    obstacle.add(obstacleMesh);
+
+    // Add a red glow effect
+    const glowGeometry = new THREE.SphereGeometry(1, 16, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff3333,
+      transparent: true,
+      opacity: 0.3,
+    });
+
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    obstacle.add(glow);
+
+    // Position obstacle
+    // IMPORTANT: Use the correct formula for 4 lanes
+    const laneWidth = this.trackWidth / 4;
+    const x = lane * laneWidth;
+    obstacle.position.set(x, 0, z);
+
+    // Tag as deadly obstacle
+    obstacle.userData = {
+      type: "obstacle",
+      deadly: true,
+      lane: lane,
+    };
+
+    // Add to chunk
+    chunk.add(obstacle);
+
+    // Store in obstacles array for collision detection
+    if (!chunk.obstacles) {
+      chunk.obstacles = [];
+    }
+    chunk.obstacles.push(obstacle);
+
+    return obstacle;
   }
 }
 

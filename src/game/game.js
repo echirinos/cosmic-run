@@ -460,40 +460,34 @@ class Game {
       const collisions = this.world.checkCollisions(playerHitbox);
 
       if (collisions && collisions.length > 0) {
+        console.log(`Found ${collisions.length} collisions`);
+
         collisions.forEach((collision) => {
           if (collision.type === "obstacle") {
             console.log(
               "Collision with obstacle:",
-              collision.object.name || "unnamed obstacle"
+              collision.object.name || "unnamed obstacle",
+              "at position:",
+              collision.object.position
             );
 
-            // Player hit by obstacle
-            const isDead = this.player.hit();
+            // For the simplified version, all obstacles are deadly
+            this.endGame();
 
-            // If player died, end the game
-            if (isDead) {
-              this.endGame();
-            } else {
-              // Player survived, trigger camera shake
-              this.triggerCameraShake(0.5, 0.3);
-              this.flashScreen(new THREE.Color(1, 0, 0), 0.3);
-              this.showMessage("Ouch!");
-
-              // Update health UI
-              this.updateHealthUI();
-            }
+            // Visual effects for dramatic impact
+            this.triggerCameraShake(0.7, 0.5);
+            this.flashScreen(new THREE.Color(1, 0, 0), 0.5);
+            this.showMessage("Game Over!");
           } else if (collision.type === "crystal") {
             // Collected a crystal
-            this.world.collectItem(collision.object);
-            this.increaseCrystals(1);
+            console.log(
+              "Collected crystal at position:",
+              collision.object.position
+            );
+            const value = this.world.collectItem(collision.object);
+            this.increaseCrystals(value);
             this.player.createCollectionEffect(collision.object.position);
-          } else if (collision.type === "powerup") {
-            // Collected a powerup
-            const powerupType =
-              collision.object.userData?.powerupType || "unknown";
-            this.world.collectItem(collision.object);
-            this.player.collectPowerup(powerupType);
-            this.showMessage(`${powerupType.toUpperCase()} activated!`);
+            this.showMessage(`+${value} Crystal!`);
           }
         });
       }

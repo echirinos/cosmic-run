@@ -9,9 +9,9 @@ class Player {
     this.gravity = 0.015; // Increased for more responsive physics
     this.position = { x: 0, y: 0, z: 0 };
     this.velocity = { x: 0, y: 0, z: 0 };
-    this.targetLane = 0; // -1: left, 0: center, 1: right
-    this.currentLane = 0;
-    this.laneWidth = 2;
+    this.targetLane = 0.5; // Updated for 4 lanes: -1.5, -0.5, 0.5, 1.5
+    this.currentLane = 0.5;
+    this.laneWidth = 3; // Width between lanes
     this.isJumping = false;
     this.isSliding = false;
     this.isDead = false;
@@ -430,14 +430,14 @@ class Player {
 
   moveLeft() {
     if (
-      this.targetLane > -1 &&
+      this.targetLane > -1.5 &&
       !this.isDead &&
       !this.animationState.stumbling
     ) {
       console.log(
         `Moving left from lane ${this.currentLane} to ${this.targetLane - 1}`
       );
-      this.targetLane--;
+      this.targetLane -= 1;
 
       // Optional: add a small visual tilt when changing lanes
       if (this.body) {
@@ -450,11 +450,15 @@ class Player {
   }
 
   moveRight() {
-    if (this.targetLane < 1 && !this.isDead && !this.animationState.stumbling) {
+    if (
+      this.targetLane < 1.5 &&
+      !this.isDead &&
+      !this.animationState.stumbling
+    ) {
       console.log(
         `Moving right from lane ${this.currentLane} to ${this.targetLane + 1}`
       );
-      this.targetLane++;
+      this.targetLane += 1;
 
       // Optional: add a small visual tilt when changing lanes
       if (this.body) {
@@ -1344,8 +1348,8 @@ class Player {
     // Reset position
     this.position = { x: 0, y: 0, z: 0 };
     this.velocity = { x: 0, y: 0, z: 0 };
-    this.targetLane = 0;
-    this.currentLane = 0;
+    this.targetLane = 0.5; // Updated for 4 lanes
+    this.currentLane = 0.5;
 
     // Reset state
     this.isDead = false;
