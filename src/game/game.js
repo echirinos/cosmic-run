@@ -67,21 +67,24 @@ class Game {
     this.scene = new THREE.Scene();
 
     // Add fog for depth perception and performance optimization (improved visibility)
-    this.scene.fog = new THREE.Fog(0x000033, 20, 100);
+    // IMPORTANT: Fog disabled to fix track visibility issues
+    // this.scene.fog = new THREE.Fog(0x000033, 20, 100);
 
     // Camera setup
     this.camera = new THREE.PerspectiveCamera(
-      70, // Increased from 75 for wider field of view
+      70, // Increased from 60 for wider field of view
       window.innerWidth / window.innerHeight,
       0.1,
       1000
     );
-    // Position camera higher and further back for better obstacle visibility
-    this.cameraOffset = new THREE.Vector3(0, 12, -20); // Even higher and further back for better course vision
-    this.cameraLookOffset = new THREE.Vector3(0, 0, 50); // Look much further ahead to see more of the course
-    this.cameraOriginalPos = null; // For camera shake
-    this.cameraShakeId = null;
-    this.cameraShakeAmount = 0;
+
+    // CRITICAL FIX: Don't use player position for initial camera setup
+    // Position camera at a fixed position instead
+    this.camera.position.set(0, 12, -20);
+    this.camera.lookAt(0, 0, 50);
+
+    // Store as original position for camera shake effect
+    this.cameraOriginalPos = this.camera.position.clone();
 
     // Initialize renderer
     this.renderer = renderer;
@@ -89,10 +92,10 @@ class Game {
     // Setup lighting
     this.setupLighting();
 
-    // Create world
+    // Create world - AFTER scene is initialized
     this.world = new World(this.scene);
 
-    // Create player
+    // Create player - AFTER scene is initialized
     this.player = new Player(this.scene);
     this.player.gameRef = this; // Add reference to game for powerup effects and movement
 
@@ -140,19 +143,14 @@ class Game {
 
     // Initialize camera position
     this.cameraPosition = new THREE.Vector3();
-    // Use a fixed position to initialize the camera rather than basing it on player position
-    // This creates a more stable starting point
-    const initialPlayerPosition = this.player.getPosition();
-    this.cameraPosition.set(
-      0, // Keep centered horizontally
-      initialPlayerPosition.y + this.cameraOffset.y,
-      initialPlayerPosition.z + this.cameraOffset.z
-    );
-    this.camera.position.copy(this.cameraPosition);
-    this.originalCameraPosition = this.cameraPosition.clone(); // Initialize the reference position
+
+    // CRITICAL FIX: Remove references to cameraOffset which isn't defined yet
+    // Use the fixed camera position we set earlier
+    this.camera.position.copy(this.cameraOriginalPos);
+    this.originalCameraPosition = this.cameraOriginalPos.clone(); // Initialize the reference position
 
     // Make camera look directly forward
-    this.camera.lookAt(new THREE.Vector3(0, 1, initialPlayerPosition.z + 20));
+    this.camera.lookAt(new THREE.Vector3(0, 0, 30));
 
     // Start the animation loop
     this.startGameLoop();
@@ -346,13 +344,22 @@ class Game {
     this.distanceTraveled += distanceThisFrame;
 
     // Update player physics - most critical
-    this.player.update(frameTime);
+    if (this.player) {
+      this.player.update(frameTime);
+    }
 
-    // Update world with current speed
-    this.world.update(frameTime, this.gameSpeed, this.player.getPosition());
+    // Update world with current speed - CRITICAL FIX: null check
+    if (this.world) {
+      const playerPos = this.player
+        ? this.player.getPosition()
+        : { x: 0, y: 0, z: 0 };
+      this.world.update(frameTime, this.gameSpeed, playerPos);
+    }
 
-    // Handle collisions - critical
-    this.handleCollisions();
+    // Handle collisions - only if world and player exist
+    if (this.world && this.player) {
+      this.handleCollisions();
+    }
 
     // Update camera - critical
     this.updateCamera(frameTime);
@@ -413,11 +420,22 @@ class Game {
         this.currentDifficulty = "medium";
       }
 
-      // Update world with new difficulty settings
-      this.world.setDifficulty(
-        this.currentDifficulty,
-        this.difficultyLevels[this.currentDifficulty]
-      );
+      // Update world with new difficulty settings - safely check if method exists
+      if (this.world && typeof this.world.setDifficulty === "function") {
+        this.world.setDifficulty(
+          this.currentDifficulty,
+          this.difficultyLevels[this.currentDifficulty]
+        );
+      } else {
+        console.warn("World setDifficulty method not available");
+        // Apply difficulty directly if possible
+        if (this.world) {
+          this.world.currentDifficulty = this.currentDifficulty;
+          this.world.obstacleFrequency =
+            this.difficultyLevels[this.currentDifficulty].obstacleFrequency ||
+            0.2;
+        }
+      }
 
       // Move to next checkpoint
       this.nextCheckpointIndex++;
@@ -530,44 +548,22 @@ class Game {
 
   // Completely revised camera update for more stability
   updateCamera(delta) {
-    if (!this.player || !this.camera) return;
+    if (!this.player) return;
 
-    // Get player position
-    const playerPosition = this.player.getPosition();
+    const playerPos = this.player.getPosition();
 
-    // Fixed camera position approach - much more stable
-    // Camera follows player only on Z-axis with minimal X offset
-    const targetCameraPos = new THREE.Vector3(
-      playerPosition.x * 0.1, // Only 10% of player's horizontal movement
-      this.cameraOffset.y, // Fixed height
-      playerPosition.z + this.cameraOffset.z // Follow on Z-axis
+    // Simple third-person camera
+    this.camera.position.set(
+      playerPos.x, // Match player x
+      playerPos.y + 10, // Fixed height above player
+      playerPos.z - 15 // Fixed distance behind player
     );
 
-    // Add minimal jump movement
-    if (this.player.isJumping) {
-      targetCameraPos.y += playerPosition.y * 0.15; // Only 15% of jump height
-    }
-
-    // Very slow interpolation for smooth, stable camera
-    if (!this.cameraShaking) {
-      if (!this.originalCameraPosition) {
-        this.originalCameraPosition = new THREE.Vector3();
-        this.originalCameraPosition.copy(targetCameraPos);
-      } else {
-        // Super smooth interpolation - much slower for stability
-        this.originalCameraPosition.x +=
-          (targetCameraPos.x - this.originalCameraPosition.x) * (delta * 0.8);
-        this.originalCameraPosition.y +=
-          (targetCameraPos.y - this.originalCameraPosition.y) * (delta * 0.8);
-        this.originalCameraPosition.z +=
-          (targetCameraPos.z - this.originalCameraPosition.z) * (delta * 1.5);
-      }
-      this.camera.position.copy(this.originalCameraPosition);
-    }
-
-    // Always look straight ahead at a fixed point
+    // Look at a point ahead of the player
     this.camera.lookAt(
-      new THREE.Vector3(0, playerPosition.y * 0.1 + 1, playerPosition.z + 15)
+      playerPos.x, // Match player x
+      playerPos.y, // Match player y
+      playerPos.z + 10 // Look ahead
     );
   }
 
@@ -978,7 +974,7 @@ class Game {
     this.world.reset();
 
     // Reset camera position
-    this.camera.position.copy(this.cameraOffset);
+    this.camera.position.copy(this.cameraOriginalPos);
 
     // Update UI
     this.updateHealthUI();

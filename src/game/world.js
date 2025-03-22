@@ -113,6 +113,9 @@ class World {
   constructor(scene) {
     this.scene = scene;
 
+    // Debug mode for visualizing track issues
+    this.debug = true; // Enable debug markers
+
     // World properties
     this.trackLength = 100;
     this.trackWidth = 6;
@@ -215,8 +218,11 @@ class World {
   }
 
   init() {
+    console.log("Initializing world...");
+
     // Initialize track materials first
     this.createTrackMaterials();
+    console.log("Track materials initialized");
 
     // Initialize essential materials for obstacles and collectibles
     this.obstacleMaterial = new THREE.MeshStandardMaterial({
@@ -235,18 +241,67 @@ class World {
 
     // Create starfield background
     this.createStarfield();
+    console.log("Starfield created");
 
     // Create space nebula environment
     this.createSpaceEnvironment();
+    console.log("Space environment created");
+
+    // Add debug grid to always see the ground
+    const gridHelper = new THREE.GridHelper(100, 100, 0xffff00, 0x00ffff);
+    this.scene.add(gridHelper);
+
+    // Add axis helper
+    const axisHelper = new THREE.AxesHelper(20);
+    this.scene.add(axisHelper);
+
+    console.log("Added debug visualization helpers");
 
     // Initialize object pools for reuse
     this.initializeObjectPools();
+    console.log("Object pools initialized");
 
     // Generate initial track
     this.generateInitialTrackPath();
+    console.log(
+      `Initial track path generated with ${this.trackPath.length} segments`
+    );
 
     // Initialize the first batch of chunks
     this.generateInitialChunks();
+    console.log(`Initial chunks generated: ${this.activeChunks.length} chunks`);
+
+    // Create debug visualization of the track
+    this.createDebugTrackVisualization();
+
+    // Create track indicators that follow the player
+    this.createTrackIndicators();
+
+    // Create player spotlight that follows the player
+    this.createPlayerLight();
+
+    // Verify track visibility
+    if (this.activeChunks.length > 0) {
+      console.log("First chunk position:", this.activeChunks[0].position);
+      if (this.activeChunks[0].track) {
+        console.log(
+          "First track mesh position:",
+          this.activeChunks[0].track.position
+        );
+        console.log(
+          "First track mesh rotation:",
+          this.activeChunks[0].track.rotation
+        );
+        console.log(
+          "First track mesh material:",
+          this.activeChunks[0].track.material
+        );
+      } else {
+        console.warn("Track mesh not found in first chunk!");
+      }
+    } else {
+      console.warn("No active chunks were generated!");
+    }
 
     // Setup performance tracking
     this.lastUpdateTime = Date.now();
@@ -256,27 +311,93 @@ class World {
     console.log("World initialized successfully");
   }
 
-  createTrackMaterials() {
-    // Create a consistent set of materials for the track segments
+  // Create a strong player light that follows the player
+  createPlayerLight() {
+    // Create a spotlight that follows the player and illuminates the track ahead
+    const playerSpotlight = new THREE.SpotLight(
+      0xffffff,
+      5.0, // Intensity increased to 5.0 (from 3.0)
+      50, // Distance increased to 50 (from 30)
+      Math.PI / 4, // Wider angle
+      0.3, // Lower penumbra for sharper light
+      1
+    );
+    playerSpotlight.position.set(0, 15, 0); // Position higher
+    playerSpotlight.target.position.set(0, 0, -15); // Point ahead of player
 
-    // Base track material - now brighter with subtle glow
+    // Configure shadows for better visibility
+    playerSpotlight.castShadow = true;
+    playerSpotlight.shadow.mapSize.width = 1024;
+    playerSpotlight.shadow.mapSize.height = 1024;
+    playerSpotlight.shadow.camera.near = 0.5;
+    playerSpotlight.shadow.camera.far = 60; // Increased far plane
+
+    // Add target to scene to make it work
+    this.scene.add(playerSpotlight.target);
+    this.scene.add(playerSpotlight);
+
+    // Store reference
+    this.playerLight = playerSpotlight;
+
+    // Add MULTIPLE point lights that follow player for better illumination
+    // 1. Central player point light (blue tint)
+    const centerLight = new THREE.PointLight(0xaaddff, 2.0, 15);
+    centerLight.position.set(0, 2, 0);
+    this.scene.add(centerLight);
+    this.playerPointLight = centerLight;
+
+    // 2. Forward light to illuminate track ahead (bright white)
+    const forwardLight = new THREE.PointLight(0xffffff, 3.0, 20);
+    forwardLight.position.set(0, 1, -10);
+    this.scene.add(forwardLight);
+    this.playerForwardLight = forwardLight;
+
+    // 3. Left and right side lights for lane visibility
+    const leftLight = new THREE.PointLight(0xff88ff, 1.5, 12);
+    leftLight.position.set(-3, 1, -5);
+    this.scene.add(leftLight);
+    this.playerLeftLight = leftLight;
+
+    const rightLight = new THREE.PointLight(0x88ffff, 1.5, 12);
+    rightLight.position.set(3, 1, -5);
+    this.scene.add(rightLight);
+    this.playerRightLight = rightLight;
+
+    console.log(
+      "Enhanced player-following light system created with multiple light sources"
+    );
+  }
+
+  // Update player lights to follow player position
+  updatePlayerLight(playerPosition) {
+    // Simple stub method - no implementation needed for now
+    // This is just to avoid errors when the Game class calls this method
+  }
+
+  createTrackMaterials() {
+    // Create a MUCH more visible track material
     this.trackMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3366cc,
-      roughness: 0.3,
-      metalness: 0.7,
-      emissive: 0x1133aa,
-      emissiveIntensity: 0.2,
-      envMapIntensity: 1.5,
+      color: 0x00aaff, // Bright blue
+      roughness: 0.2,
+      metalness: 0.6,
+      emissive: 0x0066ff,
+      emissiveIntensity: 0.5, // Stronger glow
+      transparent: false,
+      opacity: 1.0,
+      visible: true,
     });
 
     // Edge glow material - brighter blue
     this.trackEdgeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x00aaff,
+      color: 0x00ffff,
       roughness: 0.2,
       metalness: 0.8,
       emissive: 0x0088ff,
-      emissiveIntensity: 0.6,
+      emissiveIntensity: 0.8,
       envMapIntensity: 1.5,
+      transparent: false,
+      opacity: 1.0,
+      visible: true,
     });
 
     // Crystal lane material with stronger glow
@@ -285,8 +406,11 @@ class World {
       roughness: 0.3,
       metalness: 0.7,
       emissive: 0x00ffff,
-      emissiveIntensity: 0.3,
+      emissiveIntensity: 0.5,
       envMapIntensity: 1.5,
+      transparent: false,
+      opacity: 1.0,
+      visible: true,
     });
 
     // Obstacle warning material - bright red
@@ -295,8 +419,11 @@ class World {
       roughness: 0.3,
       metalness: 0.7,
       emissive: 0xff0000,
-      emissiveIntensity: 0.3,
+      emissiveIntensity: 0.5,
       envMapIntensity: 1.5,
+      transparent: false,
+      opacity: 1.0,
+      visible: true,
     });
   }
 
@@ -872,32 +999,59 @@ class World {
     // Create asteroid field in the background
     this.createAsteroidField(100);
 
-    // Add brighter ambient light for better visibility
-    const ambientLight = new THREE.AmbientLight(0x666666, 0.8);
+    // MAXIMUM VISIBILITY LIGHTING SETUP
+    console.log("Creating maximum visibility lighting setup");
+
+    // Clear any existing lighting
+    // Find and remove any existing lights in the scene
+    const existingLights = [];
+    this.scene.traverse((object) => {
+      if (object.isLight) {
+        existingLights.push(object);
+      }
+    });
+
+    existingLights.forEach((light) => {
+      this.scene.remove(light);
+    });
+
+    // Add extremely bright ambient light for guaranteed visibility
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.0); // Increased intensity
     this.scene.add(ambientLight);
 
-    // Add directional light to simulate a distant star/sun
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    sunLight.position.set(500, 300, -500);
-    sunLight.castShadow = true;
-
-    // Improve shadow quality
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 2000;
-    sunLight.shadow.camera.left = -200;
-    sunLight.shadow.camera.right = 200;
-    sunLight.shadow.camera.top = 200;
-    sunLight.shadow.camera.bottom = -200;
+    // Add directional light from above - super bright
+    const sunLight = new THREE.DirectionalLight(0xffffff, 3.0); // Increased intensity
+    sunLight.position.set(0, 20, 0); // Position directly above
+    sunLight.castShadow = false; // Disable shadows for performance and to avoid visual issues
     this.scene.add(sunLight);
 
-    // Add a soft blue-tinted hemisphere light for fill
-    const hemisphereLight = new THREE.HemisphereLight(0x88aaff, 0x334455, 0.6);
+    // Add a hemispheric light for better overall illumination
+    const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1.5);
     this.scene.add(hemisphereLight);
 
-    // Create atmosphere fog with subtle color
-    this.scene.fog = new THREE.FogExp2(0x0a1a33, 0.0015);
+    // Add track-specific spotlight
+    const trackSpot = new THREE.SpotLight(0xffffff, 3.0, 100, Math.PI / 4, 0.5);
+    trackSpot.position.set(0, 30, 0);
+    trackSpot.castShadow = false;
+    this.scene.add(trackSpot);
+
+    // Add front-facing light that moves with camera
+    const frontLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    frontLight.position.set(0, 5, 10); // In front of player
+    this.scene.add(frontLight);
+    this.frontLight = frontLight;
+
+    // EXTREMELY IMPORTANT: Completely disable fog for maximum visibility
+    // Ensure fog is null
+    if (this.scene.fog) {
+      console.log(
+        "Explicitly removing all fog from scene for maximum track visibility"
+      );
+      this.scene.fog = null;
+    }
+
+    // Double-check fog status
+    console.log("Scene fog status:", this.scene.fog ? "Present" : "Removed");
   }
 
   // Create a detailed planet with optional ring system
@@ -1161,63 +1315,71 @@ class World {
     // Generate chunks from existing track path
     for (let i = 0; i < this.trackPath.length; i++) {
       const segment = this.trackPath[i];
-      this.generateChunkFromSegment(segment);
+
+      // Set the segment index
+      segment.index = i;
+
+      // Generate the chunk from segment
+      const chunk = this.generateChunkFromSegment(segment);
+
+      // Add the chunk to the scene and active chunks
+      if (chunk) {
+        this.scene.add(chunk);
+        this.activeChunks.push(chunk);
+      }
     }
 
     console.log(`Generated ${this.activeChunks.length} initial chunks`);
   }
 
   generateChunkFromSegment(segment) {
-    if (!segment) {
-      console.error("Invalid segment passed to generateChunkFromSegment");
-      return null;
-    }
-
     // Create chunk container
     const chunk = new THREE.Group();
-    chunk.segment = segment;
-    chunk.index = segment.index;
 
-    // Initialize arrays for objects
-    chunk.obstacles = [];
-    chunk.crystals = [];
-    chunk.powerups = [];
-    chunk.decorations = [];
+    // Create a basic bright blue floor that's very large
+    const floorGeometry = new THREE.PlaneGeometry(20, 100);
+    const floorMaterial = new THREE.MeshBasicMaterial({
+      color: 0x0088ff,
+      side: THREE.DoubleSide,
+      transparent: false,
+      opacity: 1.0,
+    });
 
-    // Set position based on segment start
-    chunk.position.copy(segment.startPosition);
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = Math.PI / 2; // Make horizontal
+    floor.position.y = -0.5; // Position below player
 
-    // Create the track segment geometry
-    const trackGeometry = new THREE.PlaneGeometry(
-      this.trackWidth,
-      segment.length,
-      1,
-      Math.ceil(segment.length / 2)
-    );
+    // Add glowing edges
+    const edgeGeometry = new THREE.BoxGeometry(1, 0.5, 100);
+    const edgeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff00ff,
+      emissive: 0xff00ff,
+      emissiveIntensity: 1.0,
+    });
 
-    // Add a slight bend to non-straight segments
-    if (segment.type !== this.chunkTypes.STRAIGHT) {
-      // Apply vertex manipulation for curves
-      // ...existing curve code if any...
+    const leftEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
+    leftEdge.position.set(-10, 0, 0);
+
+    const rightEdge = new THREE.Mesh(edgeGeometry, edgeMaterial);
+    rightEdge.position.set(10, 0, 0);
+
+    // Add everything to the chunk
+    chunk.add(floor);
+    chunk.add(leftEdge);
+    chunk.add(rightEdge);
+
+    // Position the chunk
+    if (segment) {
+      chunk.position.copy(segment.startPosition);
+    } else {
+      chunk.position.set(0, 0, 0);
     }
 
-    // Create track mesh
-    const track = new THREE.Mesh(trackGeometry, this.trackMaterial);
-    track.rotation.x = -Math.PI / 2; // Lay flat
-    track.position.z = -segment.length / 2; // Center the track in the chunk
-    track.receiveShadow = true;
+    // IMPORTANT: Add to scene
+    this.scene.add(chunk);
 
-    // Add track to chunk
-    chunk.add(track);
-
-    // Add track decorations (lane markers, etc)
-    this.addTrackDecorations(chunk, segment);
-
-    // Add lane markers
-    this.addLaneMarkers(chunk, segment.length, this.trackWidth);
-
-    // Populate with obstacles and collectibles
-    this.populateChunk(chunk);
+    // Store in active chunks
+    this.activeChunks.push(chunk);
 
     return chunk;
   }
@@ -1290,11 +1452,13 @@ class World {
   }
 
   addLaneMarkers(chunk, segmentLength, trackWidth) {
-    // Create lane dividers
+    // Create lane dividers with brighter emissive materials
     const markerMaterial = new THREE.MeshStandardMaterial({
-      color: 0x666666,
-      emissive: 0x222222,
-      emissiveIntensity: 0.5,
+      color: 0x88aaee, // Brighter blue color for better visibility
+      emissive: 0x4488cc, // Add blue glow
+      emissiveIntensity: 0.6, // Increased emissive intensity
+      metalness: 0.7,
+      roughness: 0.3,
     });
 
     // Create dashed lane markers
@@ -1306,7 +1470,7 @@ class World {
     );
 
     // Left and right lane markers
-    for (let lane = -1; lane <= 1; lane += 1) {
+    for (let lane = -1; lane <= 1; lane++) {
       if (lane === 0) continue; // Skip center lane
 
       const x = lane * laneWidth;
@@ -1314,10 +1478,12 @@ class World {
       for (let i = 0; i < markerCount; i++) {
         const z = -(i * (markerSpacing + markerLength) + markerLength / 2);
 
-        const markerGeometry = new THREE.BoxGeometry(0.1, 0.05, markerLength);
+        // Make markers taller for better visibility
+        const markerGeometry = new THREE.BoxGeometry(0.1, 0.1, markerLength);
         const marker = new THREE.Mesh(markerGeometry, markerMaterial);
 
-        marker.position.set(x, 0.01, z); // Just above the track
+        // Position markers just above the track surface
+        marker.position.set(x, 0.05, z);
         chunk.add(marker);
 
         // Add to decorations for cleanup
@@ -1326,19 +1492,22 @@ class World {
       }
     }
 
-    // Add edge barriers - more visible now
+    // Add edge barriers with enhanced visibility
     for (let side = -1; side <= 1; side += 2) {
-      const edgeGeometry = new THREE.BoxGeometry(0.3, 0.5, segmentLength);
+      // Create taller edge barriers
+      const edgeGeometry = new THREE.BoxGeometry(0.3, 0.8, segmentLength);
       const edgeMaterial = new THREE.MeshStandardMaterial({
-        color: 0x3333aa,
-        emissive: 0x0000aa,
-        emissiveIntensity: 0.3,
+        color: 0x4444ff, // Bright blue
+        emissive: 0x2222ff, // Blue glow
+        emissiveIntensity: 0.7, // Strong glow
+        metalness: 0.8,
+        roughness: 0.2,
       });
 
       const edge = new THREE.Mesh(edgeGeometry, edgeMaterial);
       edge.position.set(
         side * (trackWidth / 2 + 0.15),
-        0.25,
+        0.4, // Raised position for better visibility
         -segmentLength / 2
       );
 
@@ -1603,152 +1772,98 @@ class World {
     return nebula;
   }
 
-  // Add the update method
-  update(delta, gameSpeed, playerPosition) {
-    // Manage active chunks based on player position
-    this.manageChunks(playerPosition);
-
-    // Update objects in each active chunk
-    this.activeChunks.forEach((chunk) => {
-      if (chunk && chunk.obstacles) {
-        this.updateObjectsInChunk(chunk.obstacles, playerPosition, delta);
-      }
-      if (chunk && chunk.crystals) {
-        this.updateObjectsInChunk(chunk.crystals, playerPosition, delta);
-      }
-      if (chunk && chunk.powerups) {
-        this.updateObjectsInChunk(chunk.powerups, playerPosition, delta);
-      }
-    });
-
-    // Add other updates as needed
-  }
-
-  // Add helper method for updating objects in chunks
+  // Add the missing updateObjectsInChunk method
   updateObjectsInChunk(objects, playerPosition, delta) {
-    if (!objects || objects.length === 0) return;
+    if (!objects || !Array.isArray(objects)) return;
 
+    // Simple update for objects - just animate them
     objects.forEach((object) => {
-      if (!object) return;
+      if (!object || object.collected) return;
 
-      // Calculate distance to player for activation/deactivation
-      const distanceToPlayer = object.position.z - playerPosition.z;
-
-      // Only process objects within reasonable range of the player
-      if (distanceToPlayer > -10 && distanceToPlayer < this.visibleDistance) {
-        // Handle special object types
-
-        // Moving obstacles
-        if (object.userData && object.userData.isMoving) {
-          // Update position for moving obstacles
-          const laneWidth = this.trackWidth / 3;
-          const originalX = object.userData.originalLane * laneWidth;
-          const moveRange = laneWidth * 0.8; // Don't move a full lane
-
-          // Update x position based on sin wave for side to side movement
-          object.position.x =
-            originalX +
-            Math.sin(Date.now() * 0.001 * object.userData.moveSpeed) *
-              moveRange *
-              object.userData.moveDirection;
-
-          // Update the lane property based on current position
-          const currentLane = Math.round(object.position.x / laneWidth);
-          object.lane = currentLane;
-        }
-
-        // Animate crystals
-        if (object.userData && object.userData.type === "crystal") {
-          object.rotation.y += delta * 2;
-          object.position.y = 0.7 + Math.sin(Date.now() * 0.003) * 0.1;
-        }
-
-        // Add any other special object behaviors here
+      // Simple rotation animation
+      if (object.userData && object.userData.type === "crystal") {
+        object.rotation.y += delta * (object.userData.rotationSpeed || 2);
       }
+
+      // Make sure object is visible
+      object.visible = true;
     });
   }
 
   // Add the missing manageChunks method
   manageChunks(playerPosition) {
-    // Check if we need to add new chunks or remove old ones
+    // CRITICAL FIX: First, make sure activeChunks is initialized
+    if (!this.activeChunks) {
+      this.activeChunks = [];
+    }
 
-    // Remove chunks that are too far behind the player
-    const removalDistance = 30; // How far behind player chunks are removed
+    // CRITICAL FIX: Make sure the player position exists
+    if (!playerPosition || typeof playerPosition.z === "undefined") {
+      // Use a default position if player position is not available
+      playerPosition = { x: 0, y: 0, z: 0 };
+    }
 
-    // Array to track chunks that need to be removed
-    const chunksToRemove = [];
+    // BASIC CHUNK MANAGEMENT - SIMPLIFIED
+    // If we don't have any chunks yet, create the initial chunk
+    if (this.activeChunks.length === 0) {
+      // Create a simple segment for the first chunk
+      const segment = {
+        type: "straight",
+        length: this.chunkSize || 20,
+        startPosition: new THREE.Vector3(0, 0, 0),
+        startDirection: new THREE.Vector3(0, 0, 1),
+        nodes: [],
+        index: 0,
+      };
 
-    // Check all active chunks
+      // Create first chunk
+      this.generateChunkFromSegment(segment);
+      console.log("Created initial track chunk");
+    }
+
+    // Find the furthest chunk
+    let furthestZ = -999999;
     for (let i = 0; i < this.activeChunks.length; i++) {
       const chunk = this.activeChunks[i];
-      if (!chunk) continue;
-
-      // Calculate how far behind the player this chunk is
-      const chunkEndZ = chunk.position.z - chunk.segment.length;
-      const distanceBehindPlayer = playerPosition.z - chunkEndZ;
-
-      // If the chunk is too far behind, mark it for removal
-      if (distanceBehindPlayer > removalDistance) {
-        chunksToRemove.push(i);
+      if (chunk && chunk.position && chunk.position.z > furthestZ) {
+        furthestZ = chunk.position.z;
       }
     }
 
-    // Remove chunks from back to front (to avoid index shifting issues)
-    for (let i = chunksToRemove.length - 1; i >= 0; i--) {
-      this.removeChunk(chunksToRemove[i]);
+    // Generate new chunks if player is approaching the end of the track
+    if (furthestZ - playerPosition.z < 50) {
+      // Create a new segment for the next chunk
+      const segment = {
+        type: "straight",
+        length: this.chunkSize || 20,
+        startPosition: new THREE.Vector3(0, 0, furthestZ + this.chunkSize),
+        startDirection: new THREE.Vector3(0, 0, 1),
+        nodes: [],
+        index: this.activeChunks.length,
+      };
+
+      // Generate next chunk
+      this.generateChunkFromSegment(segment);
+      console.log("Created new track chunk at z:", furthestZ + this.chunkSize);
     }
 
-    // Add new chunks if needed
-    const forwardVisibility = this.visibleDistance;
-
-    // Find the furthest active chunk
-    let furthestZ = playerPosition.z - 20; // Default if no chunks exist
-
-    for (const chunk of this.activeChunks) {
-      if (!chunk) continue;
-      const chunkEndZ = chunk.position.z - chunk.segment.length;
-      if (chunkEndZ < furthestZ) {
-        furthestZ = chunkEndZ;
+    // Very simple chunk removal - don't remove any chunks until we have many
+    if (this.activeChunks.length > 10) {
+      // Find chunks too far behind the player
+      for (let i = 0; i < this.activeChunks.length; i++) {
+        const chunk = this.activeChunks[i];
+        if (
+          chunk &&
+          chunk.position &&
+          playerPosition.z - chunk.position.z > 100
+        ) {
+          // Remove this chunk
+          this.scene.remove(chunk);
+          this.activeChunks.splice(i, 1);
+          i--; // Adjust index after removing an element
+        }
       }
     }
-
-    // Add chunks until we've reached the desired visibility distance
-    while (furthestZ > playerPosition.z - forwardVisibility) {
-      // Generate a new segment
-      const segmentType = this.chooseNextSegmentType();
-      const newSegment = this.addTrackSegment(segmentType);
-
-      // Generate a chunk from this segment
-      const newChunk = this.generateChunkFromSegment(newSegment);
-
-      // Add to scene and active chunks list
-      this.scene.add(newChunk);
-      this.activeChunks.push(newChunk);
-
-      // Update furthest point
-      furthestZ = newChunk.position.z - newChunk.segment.length;
-    }
-  }
-
-  // Helper method to choose next segment type based on difficulty
-  chooseNextSegmentType() {
-    // Get weights based on current difficulty
-    const weights = this.segmentDifficultyWeights[this.currentDifficulty];
-
-    // Roll a random number
-    const roll = Math.random();
-
-    // Determine segment type based on weighted probabilities
-    let cumulativeWeight = 0;
-    for (const [type, weight] of Object.entries(weights)) {
-      cumulativeWeight += weight;
-      if (roll < cumulativeWeight) {
-        return type;
-      }
-    }
-
-    // Default to straight if something went wrong
-    return this.chunkTypes.STRAIGHT;
   }
 
   // Add the missing removeChunk method
@@ -1763,21 +1878,211 @@ class World {
     // Remove chunk from scene
     this.scene.remove(chunk);
 
-    // Clean up arrays
-    const arrays = ["obstacles", "crystals", "powerups", "decorations"];
-
-    arrays.forEach((arrayName) => {
-      if (chunk[arrayName] && Array.isArray(chunk[arrayName])) {
-        // Return objects to their pools if needed
-        // (Add object pooling logic here if implemented)
-
-        // Clear the array
-        chunk[arrayName] = [];
-      }
-    });
-
     // Remove from active chunks array
     this.activeChunks.splice(index, 1);
+  }
+
+  update(delta, gameSpeed, playerPosition) {
+    // CRITICAL FIX: Make sure playerPosition is valid
+    if (!playerPosition) {
+      playerPosition = { x: 0, y: 0, z: 0 };
+    }
+
+    // Manage chunks - safe call with default value
+    this.manageChunks(playerPosition);
+
+    // SIMPLIFY: Skip processing objects if player position is invalid
+    if (!playerPosition || typeof playerPosition.z === "undefined") {
+      return;
+    }
+
+    // Update objects only for nearby chunks to improve performance
+    for (let i = 0; i < this.activeChunks.length; i++) {
+      const chunk = this.activeChunks[i];
+      if (!chunk) continue;
+
+      // Only process chunks near the player
+      if (
+        chunk.position &&
+        Math.abs(chunk.position.z - playerPosition.z) < 50
+      ) {
+        // Make sure the chunk is visible
+        chunk.visible = true;
+
+        // Simple update for any moving elements
+        if (chunk.obstacles) {
+          chunk.obstacles.forEach((obstacle) => {
+            if (obstacle && obstacle.update) {
+              obstacle.update(delta);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  reset() {
+    console.log("Resetting world...");
+
+    // Clear all active chunks from scene
+    if (this.activeChunks) {
+      for (let i = this.activeChunks.length - 1; i >= 0; i--) {
+        const chunk = this.activeChunks[i];
+        if (chunk) {
+          this.scene.remove(chunk);
+        }
+      }
+    }
+
+    // Reset arrays
+    this.activeChunks = [];
+
+    // Reset positions
+    this.nextSegmentPosition = new THREE.Vector3(0, 0, 0);
+
+    console.log("World reset complete");
+  }
+
+  checkCollisions(playerHitbox) {
+    // Basic collision checking
+    if (!playerHitbox || !playerHitbox.min || !playerHitbox.max) {
+      console.warn("Invalid player hitbox provided to world.checkCollisions");
+      return [];
+    }
+
+    // Return empty array if no chunks
+    if (!this.activeChunks || this.activeChunks.length === 0) {
+      return [];
+    }
+
+    // Simple array to track collisions
+    const collisions = [];
+
+    // Check only nearby chunks for performance
+    for (let i = 0; i < this.activeChunks.length; i++) {
+      const chunk = this.activeChunks[i];
+      if (!chunk) continue;
+
+      // Check obstacles
+      if (chunk.obstacles) {
+        for (let j = 0; j < chunk.obstacles.length; j++) {
+          const obstacle = chunk.obstacles[j];
+          if (!obstacle || !obstacle.position) continue;
+
+          // Simple bounding box check
+          const distance = new THREE.Vector3(
+            playerHitbox.min.x + (playerHitbox.max.x - playerHitbox.min.x) / 2,
+            playerHitbox.min.y + (playerHitbox.max.y - playerHitbox.min.y) / 2,
+            playerHitbox.min.z + (playerHitbox.max.z - playerHitbox.min.z) / 2
+          ).distanceTo(obstacle.position);
+
+          // If close enough, consider it a collision
+          if (distance < 1.5) {
+            collisions.push({
+              type: "obstacle",
+              object: obstacle,
+            });
+          }
+        }
+      }
+    }
+
+    return collisions;
+  }
+
+  collectItem(item) {
+    if (!item) return;
+
+    // Make the item invisible
+    item.visible = false;
+
+    // Find which chunk this item belongs to
+    for (let i = 0; i < this.activeChunks.length; i++) {
+      const chunk = this.activeChunks[i];
+      if (!chunk) continue;
+
+      // Check crystals
+      if (chunk.crystals) {
+        const index = chunk.crystals.indexOf(item);
+        if (index !== -1) {
+          // Mark as collected but don't remove from array to avoid index issues
+          chunk.crystals[index].collected = true;
+          return;
+        }
+      }
+
+      // Check powerups
+      if (chunk.powerups) {
+        const index = chunk.powerups.indexOf(item);
+        if (index !== -1) {
+          // Mark as collected but don't remove from array to avoid index issues
+          chunk.powerups[index].collected = true;
+          return;
+        }
+      }
+    }
+  }
+
+  updateTrackIndicators(playerPosition) {
+    // Simple stub method - no implementation needed for now
+    // This is just to avoid errors when the Game class calls this method
+  }
+
+  createTrackIndicators() {
+    // Create visual indicators for the player's position on track
+    console.log("Creating track indicators");
+
+    // Create a group to hold all indicators
+    const indicatorsGroup = new THREE.Group();
+    this.scene.add(indicatorsGroup);
+
+    // Create lane markers that show the player which lane they're in
+    const laneWidth = this.trackWidth / 3;
+
+    // Create indicators for each lane
+    for (let lane = -1; lane <= 1; lane++) {
+      const indicatorGeometry = new THREE.BoxGeometry(0.5, 0.1, 0.5);
+      const indicatorMaterial = new THREE.MeshStandardMaterial({
+        color: 0xff88ff,
+        emissive: 0xff00ff,
+        emissiveIntensity: 0.8,
+        transparent: true,
+        opacity: 0.8,
+      });
+
+      const indicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial);
+      indicator.position.set(lane * laneWidth, 0.05, -3); // Position just ahead of player start position
+      indicatorsGroup.add(indicator);
+    }
+
+    // Store reference to update with player
+    this.trackIndicators = indicatorsGroup;
+
+    console.log("Track indicators created successfully");
+  }
+
+  createDebugTrackVisualization() {
+    // Create a visible grid to help with debugging
+    const gridHelper = new THREE.GridHelper(100, 100, 0xffff00, 0x00ffff);
+    this.scene.add(gridHelper);
+
+    // Create a basic visible track right at the origin
+    const trackGeometry = new THREE.PlaneGeometry(10, 100);
+    const trackMaterial = new THREE.MeshBasicMaterial({
+      color: 0x0088ff,
+      side: THREE.DoubleSide,
+    });
+
+    const track = new THREE.Mesh(trackGeometry, trackMaterial);
+    track.rotation.x = Math.PI / 2; // Lay flat
+    track.position.set(0, -0.1, 0); // Slightly below player
+    this.scene.add(track);
+
+    // Add visible axis helper
+    const axisHelper = new THREE.AxesHelper(5);
+    this.scene.add(axisHelper);
+
+    console.log("Debug track visualization created");
   }
 }
 

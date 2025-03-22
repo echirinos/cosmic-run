@@ -846,7 +846,7 @@ class Player {
     animateDeath();
   }
 
-  update(delta) {
+  update(delta, controls, gameSpeed) {
     if (!this.mesh) return;
 
     // Apply physics
@@ -903,8 +903,15 @@ class Player {
       this.animationState.transitionTime += delta;
     }
 
-    // Update player position
-    this.mesh.position.set(this.position.x, this.position.y, this.position.z);
+    // Force player to stay above track
+    if (this.position.y < 0) {
+      this.position.y = 0;
+    }
+
+    // Update mesh position
+    if (this.mesh) {
+      this.mesh.position.set(this.position.x, this.position.y, this.position.z);
+    }
 
     // Update hitbox position for collision detection
     this.updateHitboxPosition();
@@ -1367,7 +1374,8 @@ class Player {
 
     // Reset mesh positions and rotations
     if (this.mesh) {
-      this.mesh.position.set(0, 0, 0);
+      // Make sure player is positioned ABOVE the track
+      this.mesh.position.set(0, 0.1, 0); // Position slightly above track to avoid clipping
       this.mesh.rotation.set(0, 0, 0);
 
       // Reset any visual effects
